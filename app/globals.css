@@ -111,6 +111,14 @@ body {
   display: none;
 }
 
+/* While a body holds the focus, the story text steps aside. */
+.story-layer {
+  transition: opacity var(--duration-slow) var(--ease-gentle);
+}
+[data-focus="1"] .story-layer {
+  opacity: 0;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

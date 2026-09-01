@@ -177,6 +177,15 @@ export function Hero() {
     };
   }, [mode]);
 
+  // The story layer steps aside while a body holds the focus.
+  useEffect(() => {
+    if (focused) document.documentElement.dataset.focus = "1";
+    else delete document.documentElement.dataset.focus;
+    return () => {
+      delete document.documentElement.dataset.focus;
+    };
+  }, [focused]);
+
   // While a view is locked the page cannot scroll; a scroll attempt
   // shows the way out instead.
   useEffect(() => {

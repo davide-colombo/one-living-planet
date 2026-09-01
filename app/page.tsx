@@ -9,7 +9,7 @@ export default function Home() {
       <div className="sticky top-0 z-0 h-svh">
         <Hero />
       </div>
-      <div className="pointer-events-none relative z-10">
+      <div className="story-layer pointer-events-none relative z-10">
         {/* runway one: scroll here pulls the camera back from the limb
             to the whole planet (height = P1_VH in Hero.tsx) */}
         <div aria-hidden className="journey-runway h-[160svh]" />

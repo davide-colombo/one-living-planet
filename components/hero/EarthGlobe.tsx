@@ -28,6 +28,7 @@ const EARTH_OBLIQUITY = 23.4 * DEG;
 const DRIFT_RAD_PER_S = 0.006; // full turn ≈ 17 min — barely perceptible
 const TILT_LIMIT = 1.1; // rad — how far a body can be tilted by hand
 const RESUME_DRIFT_AFTER_MS = 2500;
+const REVEAL_LINGER_MS = 1000;
 
 /** Scroll journey, part one: close-up on the limb → the whole planet. */
 const VIEW_START = { y: -1.55, scale: 1.5 };
@@ -64,12 +65,22 @@ interface PlanetSpec {
   color: string;
   angle: number;
   ring?: boolean;
+  /** color cast multiplied over the texture */
+  tint?: string;
   /** banding contrast for the procedural texture */
   banding: number;
 }
 
 const PLANETS: PlanetSpec[] = [
-  { name: "mercury", orbit: 0.5, r: 0.032, color: "#a59a8f", angle: 5.1, banding: 0.1 },
+  {
+    name: "mercury",
+    orbit: 0.5,
+    r: 0.032,
+    color: "#a59a8f",
+    angle: 5.1,
+    banding: 0.1,
+    tint: "#d9c2a8",
+  },
   { name: "venus", orbit: 0.72, r: 0.062, color: "#d9b98a", angle: 3.9, banding: 0.14 },
   { name: "mars", orbit: 1.32, r: 0.046, color: "#c96f4a", angle: 0.4, banding: 0.12 },
   { name: "jupiter", orbit: 1.9, r: 0.13, color: "#c9a87e", angle: 2.6, banding: 0.42 },
@@ -583,16 +594,15 @@ function Moon({ focusedRef }: { focusedRef: RefObject<string | null> }) {
   });
   return (
     <group ref={orbitRef} rotation={[0, 2.4, 0]}>
-      <mesh position={[3.4, 0, 0]}>
+      <mesh position={[4.6, 0, 0]}>
         <sphereGeometry args={[0.27, 32, 32]} />
         <meshStandardMaterial
           ref={mat}
           map={texture ?? undefined}
           emissiveMap={texture ?? undefined}
           emissive="#ffffff"
-          emissiveIntensity={0.3}
-          color="#cfcfcf"
-          roughness={0.95}
+          emissiveIntensity={0.1}
+          roughness={1}
           transparent
           opacity={0}
         />
@@ -683,6 +693,7 @@ function DragControls({
     let lastY = 0;
     let samples: Array<{ t: number; x: number }> = [];
     let endTimer: ReturnType<typeof setTimeout> | undefined;
+    let revealTimer: ReturnType<typeof setTimeout> | undefined;
 
     const resolveTarget = (): { group: THREE.Group | null; isSystem: boolean } | null => {
       const focused = focusedRef.current;
@@ -729,6 +740,7 @@ function DragControls({
       samples = [{ t: performance.now(), x: e.clientX }];
       el.style.cursor = "grabbing";
       clearTimeout(endTimer);
+      clearTimeout(revealTimer);
       onInteractionChange?.(true);
     };
 
@@ -775,11 +787,12 @@ function DragControls({
       it.lastActiveMs = performance.now();
       el.style.cursor = "grab";
       clearTimeout(endTimer);
-      endTimer = setTimeout(() => {
+      clearTimeout(revealTimer);
+      revealTimer = setTimeout(() => {
         interaction.current.revealFor = null;
         interaction.current.revealOrbits = false;
-        onInteractionChange?.(false);
-      }, RESUME_DRIFT_AFTER_MS);
+      }, REVEAL_LINGER_MS);
+      endTimer = setTimeout(() => onInteractionChange?.(false), RESUME_DRIFT_AFTER_MS);
     };
 
     el.addEventListener("pointerdown", onDown);
@@ -788,6 +801,7 @@ function DragControls({
     el.addEventListener("pointercancel", onUp);
     return () => {
       clearTimeout(endTimer);
+      clearTimeout(revealTimer);
       el.removeEventListener("pointerdown", onDown);
       el.removeEventListener("pointermove", onMove);
       el.removeEventListener("pointerup", onUp);
@@ -1061,8 +1075,9 @@ function Planet({
             ref={mat}
             map={surface}
             emissiveMap={surface}
-            emissive="#ffffff"
+            emissive={spec.tint ?? "#ffffff"}
             emissiveIntensity={0.35}
+            color={spec.tint ?? "#ffffff"}
             roughness={0.9}
             transparent
             opacity={0}
@@ -1328,6 +1343,8 @@ export default function EarthGlobe({
   const focusedRef = useRef<string | null>(focused);
   useEffect(() => {
     focusedRef.current = focused;
+    // no lingering axis from a view that was just exited
+    interaction.current.revealFor = null;
   }, [focused]);
 
   const interaction = useRef<InteractionState>({
