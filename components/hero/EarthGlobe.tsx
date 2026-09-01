@@ -886,6 +886,19 @@ export default function EarthGlobe({
     dragDist: 0,
   });
 
+  // Dev-only introspection for headless debugging.
+  useEffect(() => {
+    if (process.env.NODE_ENV !== "production") {
+      (window as unknown as Record<string, unknown>).__earthDebug = {
+        earthSpin: earthSpinRef,
+        systemSpin: systemSpinRef,
+        bodySpins: bodySpinsRef,
+        journey: journeyRef,
+        interaction,
+      };
+    }
+  }, [journeyRef]);
+
   const targets = useMemo<DragTargets>(
     () => ({ earthSpin: earthSpinRef, systemSpin: systemSpinRef, bodySpins: bodySpinsRef }),
     [],
