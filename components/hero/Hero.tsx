@@ -169,7 +169,7 @@ export function Hero() {
 
         {/* scroll cue */}
         <a
-          href="#overview"
+          href="#living-planet"
           className="pointer-events-auto absolute bottom-[var(--space-6)] left-1/2 -translate-x-1/2 rounded-full px-4 py-1.5"
           style={{
             fontSize: "var(--text-caption)",

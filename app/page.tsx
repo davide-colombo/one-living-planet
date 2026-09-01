@@ -1,10 +1,11 @@
 import { Hero } from "@/components/hero/Hero";
 
+// Chapter structure from docs/concept.md — the hero is chapter 01, "Earthrise".
 const CHAPTERS = [
-  { id: "overview", n: "01", title: "Overview" },
-  { id: "atmosphere", n: "02", title: "Atmosphere" },
-  { id: "biosphere", n: "03", title: "Biosphere" },
-  { id: "explore", n: "04", title: "Explore" },
+  { id: "living-planet", n: "02", title: "The living planet" },
+  { id: "one-tree", n: "03", title: "One tree" },
+  { id: "in-danger", n: "04", title: "In danger" },
+  { id: "explore", n: "05", title: "Explore" },
 ];
 
 export default function Home() {
