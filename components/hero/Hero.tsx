@@ -73,6 +73,7 @@ export function Hero() {
   const [hintVisible, setHintVisible] = useState(false);
   // focused celestial body (system view): rig zooms in on it
   const [focused, setFocused] = useState<string | null>(null);
+  const [atTop, setAtTop] = useState(true);
   const focusedRef = useRef<string | null>(null);
   const focusStartY = useRef(0);
   const copyRef = useRef<HTMLDivElement>(null);
@@ -121,26 +122,16 @@ export function Hero() {
 
   // Stable identity: a fresh closure would re-run the globe's pointer
   // effect on every render, resetting a drag in progress.
-  const onInteractionChange = useCallback(
-    (active: boolean) => {
-      setInteracting(active);
-      if (!active) return;
-      setHintVisible(false);
-      try {
-        localStorage.setItem(TOUCHED_KEY, "1");
-      } catch {
-        /* fine — the hint will just show again next visit */
-      }
-      // Touching Earth outside its full view pulls the page to it.
-      const j = journeyRef.current;
-      if (focusedRef.current === null && j.p2 === 0) {
-        const vh = window.innerHeight;
-        const target = vh * P1_VH;
-        if (Math.abs(window.scrollY - target) > vh * 0.2) animateScrollTo(target);
-      }
-    },
-    [animateScrollTo],
-  );
+  const onInteractionChange = useCallback((active: boolean) => {
+    setInteracting(active);
+    if (!active) return;
+    setHintVisible(false);
+    try {
+      localStorage.setItem(TOUCHED_KEY, "1");
+    } catch {
+      /* fine — the hint will just show again next visit */
+    }
+  }, []);
 
   const onFocusRequest = useCallback(
     (name: string | null) => {
@@ -234,6 +225,7 @@ export function Hero() {
         if (copyRef.current) {
           copyRef.current.style.opacity = Math.max(0, 1 - y / (vh * 0.4)).toFixed(3);
         }
+        setAtTop(y < vh * 0.8);
       });
     };
 
@@ -386,7 +378,7 @@ export function Hero() {
           transition: "opacity var(--duration-ambient) var(--ease-gentle)",
         }}
       >
-        Drag to spin the planet
+        {atTop ? "Touch the planet" : "Drag to spin the planet"}
       </div>
     </section>
   );

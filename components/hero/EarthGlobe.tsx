@@ -54,6 +54,9 @@ const FOCUS_WORLD_R = 0.5;
 /** Bodies fade in from a third of the way into the zoom. */
 const systemReveal = (p2: number) => smooth(clamp((p2 - 0.33) / 0.55, 0, 1));
 
+/** The full-Earth resting zone (anchor + hold): where Earth is draggable. */
+const inEarthZone = (j: Journey) => j.p1 > 0.9 && j.p2 < 0.05;
+
 interface PlanetSpec {
   name: string;
   orbit: number;
@@ -422,7 +425,7 @@ function DragControls({
     let lastT = 0;
     let endTimer: ReturnType<typeof setTimeout> | undefined;
 
-    const resolveTarget = (): { group: THREE.Group | null; isSystem: boolean } => {
+    const resolveTarget = (): { group: THREE.Group | null; isSystem: boolean } | null => {
       const focused = focusedRef.current;
       if (focused && focused !== "earth") {
         return { group: targets.bodySpins.current.get(focused) ?? null, isSystem: false };
@@ -430,17 +433,25 @@ function DragControls({
       if (journey.current.p2 > 0.6) {
         return { group: targets.systemSpin.current, isSystem: true };
       }
-      return { group: targets.earthSpin.current, isSystem: false };
+      // Earth is draggable only in its resting zone — from the limb
+      // view (or mid-transition) a click travels there instead.
+      if (inEarthZone(journey.current)) {
+        return { group: targets.earthSpin.current, isSystem: false };
+      }
+      return null;
     };
 
     const onDown = (e: PointerEvent) => {
       if (e.button !== 0 && e.pointerType === "mouse") return;
+      interaction.current.dragDist = 0;
+      const resolved = resolveTarget();
+      if (!resolved) return; // outside interactive zones: clicks may travel, drags do nothing
       try {
         el.setPointerCapture(e.pointerId);
       } catch {
         /* capture is a nicety; dragging works without it */
       }
-      const { group, isSystem } = resolveTarget();
+      const { group, isSystem } = resolved;
       activeGroup.current = group;
       activeIsSystem.current = isSystem;
       const it = interaction.current;
@@ -505,6 +516,19 @@ function DragControls({
       el.removeEventListener("pointercancel", onUp);
     };
   }, [gl, targets, journey, focusedRef, interaction, onInteractionChange]);
+
+  // cursor: grab in interactive zones, plain elsewhere (bodies set
+  // their own pointer cursor on hover)
+  useFrame(() => {
+    const it = interaction.current;
+    if (it.dragging) return;
+    const interactive =
+      focusedRef.current !== null || journey.current.p2 > 0.6 || inEarthZone(journey.current);
+    const want = interactive ? "grab" : "";
+    if (gl.domElement.style.cursor !== "pointer" && gl.domElement.style.cursor !== want) {
+      gl.domElement.style.cursor = want;
+    }
+  });
 
   // yaw inertia after release; the system's pitch eases back level
   useFrame((_, delta) => {
@@ -970,7 +994,7 @@ export default function EarthGlobe({
                   spinRef={earthSpinRef}
                   interaction={interaction}
                   onEarthClick={() => {
-                    if (journeyRef.current.p2 > 0.5) onFocusRequest("earth");
+                    if (!inEarthZone(journeyRef.current)) onFocusRequest("earth");
                   }}
                 />
                 <Graticule interaction={interaction} />
