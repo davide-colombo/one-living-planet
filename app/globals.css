@@ -39,10 +39,10 @@
   --leading-normal: 1.5;
   --leading-relaxed: 1.65;
 
-  --tracking-display: -0.022em;
-  --tracking-title: -0.015em;
-  --tracking-body: 0;
-  --tracking-caps: 0.08em;
+  --tracking-display: 0.005em;
+  --tracking-title: 0.008em;
+  --tracking-body: 0.012em;
+  --tracking-caps: 0.1em;
 
   /* ---- spacing (4px base) ---- */
   --space-1: 0.25rem; /* 4 */
