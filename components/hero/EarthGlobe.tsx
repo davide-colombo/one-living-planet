@@ -1044,9 +1044,16 @@ function Planet({
 }: BodyCommonProps & { spec: PlanetSpec }) {
   const mat = useRef<THREE.MeshStandardMaterial>(null);
   const spinRef = useRef<THREE.Group>(null);
+  const hitRef = useRef<THREE.Mesh>(null);
   const surface = useBodyTexture(spec);
+  const hitR = Math.max(spec.r * 1.8, 0.1);
   useOpacityDriver(mat, () => bodyReveal(journey.current, focusedRef.current, spec.name));
   usePerspectiveCompensation(spinRef, journey, focusedRef);
+  useFrame(() => {
+    if (hitRef.current) {
+      hitRef.current.scale.setScalar(focusedRef.current !== null ? spec.r / hitR : 1);
+    }
+  });
   const pos = useMemo(() => orbitPosition(spec.orbit, spec.angle), [spec]);
   return (
     <group position={pos}>
@@ -1056,8 +1063,10 @@ function Planet({
           registerSpin(spec.name, g);
         }}
       >
-        {/* generous invisible hit target: small planets stay clickable */}
+        {/* invisible hit target: slightly generous in the system view,
+            exactly the sphere while a focus view is open */}
         <mesh
+          ref={hitRef}
           onClick={() => {
             if (interaction.current.dragDist < 6) onBodyClick(spec.name);
           }}
@@ -1072,7 +1081,7 @@ function Planet({
             if (el && el.style.cursor === "pointer") el.style.cursor = "grab";
           }}
         >
-          <sphereGeometry args={[Math.max(spec.r * 2.2, 0.14), 12, 12]} />
+          <sphereGeometry args={[hitR, 12, 12]} />
           <meshBasicMaterial transparent opacity={0} depthWrite={false} />
         </mesh>
         <mesh>
@@ -1394,11 +1403,20 @@ export default function EarthGlobe({
     [],
   );
 
-  const handleTapWhileFocused = useMemo(() => () => onFocusRequest(null), [onFocusRequest]);
+  const lastExitMs = useRef(0);
+
+  const handleTapWhileFocused = useMemo(
+    () => () => {
+      lastExitMs.current = performance.now();
+      onFocusRequest(null);
+    },
+    [onFocusRequest],
+  );
 
   const handleBodyClick = useMemo(
     () => (name: string) => {
       if (focusedRef.current !== null) return; // a tap in the planet view exits instead
+      if (performance.now() - lastExitMs.current < 400) return; // that click just exited a view
       if (journeyRef.current.p2 < 0.33) return; // bodies are clickable once revealed
       onFocusRequest(name);
     },
@@ -1458,6 +1476,7 @@ export default function EarthGlobe({
                     focusedRef={focusedRef}
                     onEarthClick={() => {
                       if (focusedRef.current !== null) return; // the tap exit handles it
+                      if (performance.now() - lastExitMs.current < 400) return;
                       if (!inEarthZone(journeyRef.current)) onFocusRequest("earth");
                     }}
                   />
