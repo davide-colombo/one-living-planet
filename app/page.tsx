@@ -7,7 +7,7 @@ export default function Home() {
       <div className="sticky top-0 z-0 h-svh">
         <Hero />
       </div>
-      <div className="relative z-10">
+      <div className="pointer-events-none relative z-10">
         {/* runway one: scroll here pulls the camera back from the limb
             to the whole planet (height = P1_VH in Hero.tsx) */}
         <div aria-hidden className="h-[160svh]" />
@@ -18,7 +18,7 @@ export default function Home() {
           className="mx-auto flex h-[100svh] max-w-2xl flex-col justify-center px-[var(--space-5)]"
         >
           <p
-            className="font-medium"
+            className="pointer-events-auto font-medium"
             style={{
               fontSize: "var(--text-title-2)",
               letterSpacing: "var(--tracking-title)",
@@ -29,7 +29,7 @@ export default function Home() {
             only world that has ever been alive.
           </p>
           <p
-            className="mt-[var(--space-5)]"
+            className="pointer-events-auto mt-[var(--space-5)]"
             style={{
               color: "var(--fg-muted)",
               fontSize: "var(--text-body)",
@@ -52,7 +52,7 @@ export default function Home() {
           className="mx-auto flex min-h-[90svh] max-w-2xl flex-col justify-center px-[var(--space-5)]"
         >
           <p
-            className="font-medium"
+            className="pointer-events-auto font-medium"
             style={{
               fontSize: "var(--text-title-2)",
               letterSpacing: "var(--tracking-title)",
@@ -62,7 +62,7 @@ export default function Home() {
             Step back far enough, and Earth becomes one of eight.
           </p>
           <p
-            className="mt-[var(--space-5)]"
+            className="pointer-events-auto mt-[var(--space-5)]"
             style={{
               color: "var(--fg-muted)",
               fontSize: "var(--text-body)",
@@ -78,6 +78,7 @@ export default function Home() {
         {/* quiet close, for now */}
         <section className="mx-auto flex min-h-[50svh] max-w-2xl flex-col justify-center px-[var(--space-5)] pb-[var(--space-10)]">
           <p
+            className="pointer-events-auto"
             style={{
               color: "var(--fg-muted)",
               fontSize: "var(--text-body-sm)",

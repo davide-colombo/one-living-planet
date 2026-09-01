@@ -51,8 +51,8 @@ const SUN_R = 0.16;
 const FOCUS_POINT = new THREE.Vector3(0, 0.02, 0.8);
 const FOCUS_WORLD_R = 0.5;
 
-/** Bodies fade in only late in the zoom — no half-arrived grey scene. */
-const systemReveal = (p2: number) => smooth(clamp((p2 - 0.5) / 0.45, 0, 1));
+/** Bodies fade in from a third of the way into the zoom. */
+const systemReveal = (p2: number) => smooth(clamp((p2 - 0.33) / 0.55, 0, 1));
 
 interface PlanetSpec {
   name: string;
@@ -920,7 +920,7 @@ export default function EarthGlobe({
 
   const handleBodyClick = useMemo(
     () => (name: string) => {
-      if (journeyRef.current.p2 < 0.5) return; // bodies are clickable in the system view
+      if (journeyRef.current.p2 < 0.33) return; // bodies are clickable once revealed
       onFocusRequest(name);
     },
     [journeyRef, onFocusRequest],
