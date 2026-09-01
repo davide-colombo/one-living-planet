@@ -17,12 +17,14 @@
 ## Hero globe
 
 - Textures self-hosted in `/public`, never fetched from NASA GIBS at runtime
-  - Day: NASA Blue Marble Next Generation, downsampled to 4096×2048
-  - Night: NASA Black Marble city lights
-  - Compressed to KTX2/Basis (webp fallback); 1k versions load first, 4k swaps in when ready
+  - Day: NASA Blue Marble Next Generation (21600×10800 sources), four seasonal variants
+    (Mar/Jun/Sep/Dec) picked by the visitor's current month; 1k → 4k → 8k progressive chain,
+    8k only where the GPU reports maxTextureSize ≥ 8192 and the screen is large enough
+  - Night: NASA Black Marble 2016 city lights, 1k → 2k → 4k with the same gating
+  - WebP today; KTX2/Basis remains a follow-up (needs toktx)
 - Custom shader blends day/night across the terminator using the sun-direction uniform
 - Performance budget: 60 fps on mid-range mobile; hero payload < 3 MB
-  (current: ~403 KB gz JS incl. deferred three.js chunk + 612 KB textures, 68 KB up front)
+  (current: ~403 KB gz JS incl. deferred three.js chunk; textures 56 KB up front, ~460 KB at 4k, ~1.8 MB ceiling with 8k day + 4k night on capable screens)
 - Fallbacks: `prefers-reduced-motion` and no-WebGL get a pre-rendered static hero image with the
   same palette treatment (`scripts/render-static-hero.mjs`)
 - Texture pipeline: `scripts/prepare-textures.mjs` (sharp → WebP). KTX2/Basis variants are a

@@ -28,7 +28,19 @@ const smoothstep = (a, b, x) => {
 const texDir = path.join(process.cwd(), "public", "textures");
 const load = (name) => sharp(path.join(texDir, name)).raw().toBuffer({ resolveWithObject: true });
 
-const [day, night] = await Promise.all([load("earth-day-4k.webp"), load("earth-night-2k.webp")]);
+const month = new Date().getMonth();
+const season =
+  month >= 2 && month <= 4
+    ? "mar"
+    : month >= 5 && month <= 7
+      ? "jun"
+      : month >= 8 && month <= 10
+        ? "sep"
+        : "dec";
+const [day, night] = await Promise.all([
+  load(`earth-day-${season}-4k.webp`),
+  load("earth-night-2k.webp"),
+]);
 
 function sample({ data, info }, lat, lon) {
   const u = ((lon / (2 * Math.PI) + 0.5) % 1) * (info.width - 1);

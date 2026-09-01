@@ -130,18 +130,36 @@ function configureTexture(t: THREE.Texture) {
   return t;
 }
 
-function useProgressiveTexture(lowUrl: string, highUrl: string): THREE.Texture {
-  const low = useLoader(THREE.TextureLoader, lowUrl);
-  const [texture, setTexture] = useState(() => configureTexture(low));
+/**
+ * Blue Marble is a monthly series; pick the season nearest the current
+ * month so the hemispheres carry the right snow and vegetation.
+ */
+export function seasonKey(date: Date): "mar" | "jun" | "sep" | "dec" {
+  const m = date.getMonth();
+  if (m >= 2 && m <= 4) return "mar";
+  if (m >= 5 && m <= 7) return "jun";
+  if (m >= 8 && m <= 10) return "sep";
+  return "dec";
+}
+
+/** Loads each level in order; the sharpest arrives last. */
+function useProgressiveTexture(urls: readonly string[]): THREE.Texture {
+  const first = useLoader(THREE.TextureLoader, urls[0]);
+  const [texture, setTexture] = useState(() => configureTexture(first));
   useEffect(() => {
     let alive = true;
-    new THREE.TextureLoader().load(highUrl, (high) => {
-      if (alive) setTexture(configureTexture(high));
-    });
+    (async () => {
+      const loader = new THREE.TextureLoader();
+      for (const url of urls.slice(1)) {
+        const t = await loader.loadAsync(url).catch(() => null);
+        if (!alive) return;
+        if (t) setTexture(configureTexture(t));
+      }
+    })();
     return () => {
       alive = false;
     };
-  }, [highUrl]);
+  }, [urls]);
   return texture;
 }
 
@@ -212,14 +230,27 @@ function EarthSurface({
   interaction,
   onEarthClick,
 }: EarthSurfaceProps) {
-  const dayMap = useProgressiveTexture(
-    "/textures/earth-day-1k.webp",
-    "/textures/earth-day-4k.webp",
-  );
-  const nightMap = useProgressiveTexture(
-    "/textures/earth-night-1k.webp",
-    "/textures/earth-night-2k.webp",
-  );
+  const { gl } = useThree();
+  const [dayUrls, nightUrls] = useMemo(() => {
+    const season = seasonKey(new Date(atMs));
+    // 8k day / 4k night only where the GPU and the screen can use them
+    const big =
+      gl.capabilities.maxTextureSize >= 8192 && window.innerWidth * window.devicePixelRatio >= 2000;
+    return [
+      [
+        `/textures/earth-day-${season}-1k.webp`,
+        `/textures/earth-day-${season}-4k.webp`,
+        ...(big ? [`/textures/earth-day-${season}-8k.webp`] : []),
+      ],
+      [
+        "/textures/earth-night-1k.webp",
+        "/textures/earth-night-2k.webp",
+        ...(big ? ["/textures/earth-night-4k.webp"] : []),
+      ],
+    ];
+  }, [atMs, gl]);
+  const dayMap = useProgressiveTexture(dayUrls);
+  const nightMap = useProgressiveTexture(nightUrls);
 
   // Sun direction in the earth-fixed frame — real, from the solar engine.
   const sunEarthFixed = useMemo(() => sunToThreeFrame(sunDirection(new Date(atMs))), [atMs]);
