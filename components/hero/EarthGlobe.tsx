@@ -706,6 +706,50 @@ function SunCore({ journey, interaction, registerSpin, onBodyClick }: BodyCommon
   );
 }
 
+/** Saturn's rings: the texture is a radial strip, so the ring
+    geometry gets UVs that run inner edge → outer edge. */
+function SaturnRing({ spec, journey }: { spec: PlanetSpec; journey: RefObject<Journey> }) {
+  const mat = useRef<THREE.MeshBasicMaterial>(null);
+  const inner = spec.r * 1.24;
+  const outer = spec.r * 2.27;
+  const geometry = useMemo(() => {
+    const g = new THREE.RingGeometry(inner, outer, 128);
+    const pos = g.attributes.position;
+    const uv = g.attributes.uv as THREE.BufferAttribute;
+    const v = new THREE.Vector3();
+    for (let i = 0; i < pos.count; i++) {
+      v.fromBufferAttribute(pos as THREE.BufferAttribute, i);
+      uv.setXY(i, (v.length() - inner) / (outer - inner), 0.5);
+    }
+    return g;
+  }, [inner, outer]);
+  const [texture, setTexture] = useState<THREE.Texture | null>(null);
+  useEffect(() => {
+    let alive = true;
+    new THREE.TextureLoader().load("/textures/planets/saturn-ring.webp", (t) => {
+      if (alive) setTexture(t);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
+  useOpacityDriver(mat, () => 0.9 * systemReveal(journey.current.p2));
+  return (
+    <mesh geometry={geometry} rotation={[1.25, 0, 0.3]}>
+      <meshBasicMaterial
+        key={texture ? "textured" : "flat"}
+        ref={mat}
+        map={texture ?? undefined}
+        color={texture ? "#ffffff" : "#d8c9a3"}
+        transparent
+        opacity={0}
+        side={THREE.DoubleSide}
+        depthWrite={false}
+      />
+    </mesh>
+  );
+}
+
 function Planet({
   spec,
   journey,
@@ -714,11 +758,9 @@ function Planet({
   onBodyClick,
 }: BodyCommonProps & { spec: PlanetSpec }) {
   const mat = useRef<THREE.MeshStandardMaterial>(null);
-  const ringMat = useRef<THREE.MeshBasicMaterial>(null);
   const surface = useBodyTexture(spec);
   const p2 = () => systemReveal(journey.current.p2);
   useOpacityDriver(mat, p2);
-  useOpacityDriver(ringMat, () => 0.55 * p2());
   const pos = useMemo(() => orbitPosition(spec.orbit, spec.angle), [spec]);
   return (
     <group position={pos}>
@@ -755,19 +797,7 @@ function Planet({
             opacity={0}
           />
         </mesh>
-        {spec.ring ? (
-          <mesh rotation={[1.25, 0, 0.3]}>
-            <ringGeometry args={[spec.r * 1.35, spec.r * 2.1, 64]} />
-            <meshBasicMaterial
-              ref={ringMat}
-              color="#d8c9a3"
-              transparent
-              opacity={0}
-              side={THREE.DoubleSide}
-              depthWrite={false}
-            />
-          </mesh>
-        ) : null}
+        {spec.ring ? <SaturnRing spec={spec} journey={journey} /> : null}
       </group>
     </group>
   );
