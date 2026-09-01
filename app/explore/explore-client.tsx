@@ -78,6 +78,7 @@ export function ExploreClient() {
   const [selected, setSelected] = useState<Ecoregion | null>(null);
   const [hovered, setHovered] = useState<Ecoregion | null>(null);
   const [ready, setReady] = useState(false);
+  const [diag, setDiag] = useState<string[]>([]);
   // the map's event closures read the latest index through a ref
   const indexRef = useRef<Map<number, Ecoregion> | null>(null);
   useEffect(() => {
@@ -114,7 +115,31 @@ export function ExploreClient() {
     mapRef.current = map;
     if (process.env.NODE_ENV !== "production") {
       (window as unknown as Record<string, unknown>).__exploreMap = map;
-      map.on("error", (e) => console.error("[map error]", e.error?.message ?? e));
+      const log = (line: string) => setDiag((d) => [...d.slice(-7), line]);
+      map.on("error", (e) => {
+        console.error("[map error]", e.error?.message ?? e);
+        log(`error: ${e.error?.message ?? String(e)}`);
+      });
+      map.on("styledata", () => log("style loaded"));
+      map.on("sourcedata", (e) => {
+        if (e.sourceId === "ecoregions" && e.tile) {
+          log(
+            `tile ${e.tile.tileID?.canonical?.z ?? "?"} ${e.isSourceLoaded ? "(source loaded)" : ""}`,
+          );
+        }
+      });
+      map.on("dataloading", (e) => {
+        if (e.dataType === "source" && "tile" in e && e.tile) log("tile loading");
+      });
+      const interval = setInterval(() => {
+        const n = map.queryRenderedFeatures({
+          layers: map.getLayer("eco-fill") ? ["eco-fill"] : [],
+        }).length;
+        const src = map.getSource("ecoregions");
+        const loaded = src ? map.isSourceLoaded("ecoregions") : "no source";
+        log(`rendered features: ${n} · source loaded: ${String(loaded)}`);
+      }, 2000);
+      map.once("remove", () => clearInterval(interval));
     }
 
     map.addControl(
@@ -260,6 +285,20 @@ export function ExploreClient() {
           </div>
         ) : null}
       </div>
+
+      {process.env.NODE_ENV !== "production" && diag.length > 0 ? (
+        <pre
+          className="pointer-events-none absolute top-[var(--space-5)] right-[var(--space-5)] max-w-md whitespace-pre-wrap rounded-md p-3 font-mono"
+          style={{
+            fontSize: "11px",
+            lineHeight: 1.4,
+            color: "#9fe0a8",
+            background: "rgba(0,0,0,0.6)",
+          }}
+        >
+          {diag.join("\n")}
+        </pre>
+      ) : null}
 
       {/* first hint */}
       <div

@@ -14,6 +14,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // third-party bundles copied for self-hosting (MapLibre worker)
+    "public/**",
   ]),
 ]);
 
