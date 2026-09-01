@@ -163,6 +163,25 @@ function useProgressiveTexture(urls: readonly string[]): THREE.Texture {
   return texture;
 }
 
+/**
+ * Real surface texture (Solar System Scope, CC BY 4.0), loaded lazily;
+ * the procedural bands below fill in while it arrives.
+ */
+function useBodyTexture(spec: PlanetSpec): THREE.Texture {
+  const fallback = useMemo(() => makeBandTexture(spec), [spec]);
+  const [texture, setTexture] = useState<THREE.Texture | null>(null);
+  useEffect(() => {
+    let alive = true;
+    new THREE.TextureLoader().load(`/textures/planets/${spec.name}-2k.webp`, (t) => {
+      if (alive) setTexture(configureTexture(t));
+    });
+    return () => {
+      alive = false;
+    };
+  }, [spec]);
+  return texture ?? fallback;
+}
+
 /** Seeded procedural band texture so planet rotation is visible. */
 function makeBandTexture(spec: PlanetSpec): THREE.CanvasTexture {
   const w = 256;
@@ -564,12 +583,15 @@ function DragControls({
   useFrame(() => {
     const it = interaction.current;
     if (it.dragging) return;
-    const interactive =
-      focusedRef.current !== null || journey.current.p2 > 0.6 || inEarthZone(journey.current);
+    const deepView = focusedRef.current !== null || journey.current.p2 > 0.6;
+    const interactive = deepView || inEarthZone(journey.current);
     const want = interactive ? "grab" : "";
     if (gl.domElement.style.cursor !== "pointer" && gl.domElement.style.cursor !== want) {
       gl.domElement.style.cursor = want;
     }
+    // in the deep views every touch drives rotation, never page scroll
+    const ta = deepView ? "none" : "pan-y";
+    if (gl.domElement.style.touchAction !== ta) gl.domElement.style.touchAction = ta;
   });
 
   // yaw inertia after release; the system's pitch eases back level
@@ -645,7 +667,7 @@ interface BodyCommonProps {
 
 function SunCore({ journey, interaction, registerSpin, onBodyClick }: BodyCommonProps) {
   const glowTexture = useMemo(() => makeGlowTexture(SUN_GLOW_STOPS), []);
-  const surface = useMemo(() => makeBandTexture(SUN_SPEC), []);
+  const surface = useBodyTexture(SUN_SPEC);
   const glowMat = useRef<THREE.SpriteMaterial>(null);
   const coreMat = useRef<THREE.MeshBasicMaterial>(null);
   const p2 = () => systemReveal(journey.current.p2);
@@ -686,7 +708,7 @@ function Planet({
 }: BodyCommonProps & { spec: PlanetSpec }) {
   const mat = useRef<THREE.MeshStandardMaterial>(null);
   const ringMat = useRef<THREE.MeshBasicMaterial>(null);
-  const surface = useMemo(() => makeBandTexture(spec), [spec]);
+  const surface = useBodyTexture(spec);
   const p2 = () => systemReveal(journey.current.p2);
   useOpacityDriver(mat, p2);
   useOpacityDriver(ringMat, () => 0.55 * p2());
@@ -694,11 +716,26 @@ function Planet({
   return (
     <group position={pos}>
       <group ref={(g) => registerSpin(spec.name, g)}>
+        {/* generous invisible hit target: small planets stay clickable */}
         <mesh
           onClick={() => {
             if (interaction.current.dragDist < 6) onBodyClick(spec.name);
           }}
+          onPointerOver={(e) => {
+            const el = e.nativeEvent.target as HTMLElement | null;
+            if (el && !interaction.current.dragging && journey.current.p2 > 0.33) {
+              el.style.cursor = "pointer";
+            }
+          }}
+          onPointerOut={(e) => {
+            const el = e.nativeEvent.target as HTMLElement | null;
+            if (el && el.style.cursor === "pointer") el.style.cursor = "grab";
+          }}
         >
+          <sphereGeometry args={[Math.max(spec.r * 2.2, 0.14), 12, 12]} />
+          <meshBasicMaterial transparent opacity={0} depthWrite={false} />
+        </mesh>
+        <mesh>
           <sphereGeometry args={[spec.r, 48, 48]} />
           <meshStandardMaterial
             ref={mat}
@@ -936,6 +973,8 @@ export interface EarthGlobeProps {
   focused: string | null;
   /** clicks on bodies / empty space request focus changes */
   onFocusRequest: (name: string | null) => void;
+  /** click on empty space while nothing is focused (the unlock gesture) */
+  onBackgroundClick?: () => void;
   /** fires when the visitor picks up / releases a body */
   onInteractionChange?: (active: boolean) => void;
   /** disable the idle drift (reduced motion) */
@@ -948,6 +987,7 @@ export default function EarthGlobe({
   journeyRef,
   focused,
   onFocusRequest,
+  onBackgroundClick,
   onInteractionChange,
   drift = true,
 }: EarthGlobeProps) {
@@ -1016,7 +1056,9 @@ export default function EarthGlobe({
       style={{ position: "absolute", inset: 0 }}
       aria-hidden
       onPointerMissed={() => {
-        if (focusedRef.current && interaction.current.dragDist < 6) onFocusRequest(null);
+        if (interaction.current.dragDist >= 6) return;
+        if (focusedRef.current) onFocusRequest(null);
+        else onBackgroundClick?.();
       }}
     >
       <Suspense fallback={null}>

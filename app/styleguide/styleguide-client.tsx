@@ -89,7 +89,7 @@ function SolarPanel() {
     <section>
       <SectionHeading
         title="Solar palette"
-        note="continuous interpolation across the day — scrub with the dev slider"
+        note="continuous interpolation across the day; scrub with the dev slider"
       />
       <div
         style={{
@@ -248,7 +248,7 @@ function PaletteStates() {
                 className="mt-1 mb-[var(--space-4)]"
                 style={{ fontSize: "var(--text-body-sm)", color: "var(--fg-muted)" }}
               >
-                Aa — the quick brown fox
+                Aa, the quick brown fox
               </p>
               <div className="grid gap-[var(--space-2)]">
                 <TokenChip name="--fg" value={formatOklch(p.fg)} />
@@ -329,7 +329,7 @@ function Typography() {
     <section>
       <SectionHeading
         title="Typography"
-        note="system stack — SF Pro on Apple hardware, Inter/Segoe elsewhere"
+        note="system stack: SF Pro on Apple hardware, Inter or Segoe elsewhere"
       />
       <div className="grid gap-[var(--space-5)]">
         {TYPE_STEPS.map((s) => (
@@ -408,7 +408,7 @@ function Motion() {
   const [runId, setRunId] = useState(0);
   return (
     <section>
-      <SectionHeading title="Motion" note="restrained, ease-out biased — nothing bouncy" />
+      <SectionHeading title="Motion" note="restrained and ease-out biased, nothing bouncy" />
       <button
         type="button"
         onClick={() => setRunId((n) => n + 1)}

@@ -25,8 +25,8 @@ export default function Home() {
               lineHeight: "var(--leading-snug)",
             }}
           >
-            Third from the Sun, four and a half billion years old — and, as far as anyone knows, the
-            only world that has ever been alive.
+            Third planet from the Sun, four and a half billion years old, and the only world we know
+            of that has ever been alive.
           </p>
           <p
             className="pointer-events-auto mt-[var(--space-5)]"
@@ -36,9 +36,9 @@ export default function Home() {
               lineHeight: "var(--leading-relaxed)",
             }}
           >
-            Around 2.13 million species have been described so far. The best estimate puts the real
-            number near 8.7 million — which means most of life on Earth has never been named,
-            photographed, or understood. This is a journey through what we know.
+            About 2.13 million species have a name so far. The best estimate says the real number is
+            close to 8.7 million. Most of life on this planet has never been seen up close. This
+            site is a way to meet it.
           </p>
         </section>
 
@@ -59,7 +59,7 @@ export default function Home() {
               lineHeight: "var(--leading-snug)",
             }}
           >
-            Step back far enough, and Earth becomes one of eight.
+            Step back far enough and Earth becomes one planet among eight.
           </p>
           <p
             className="pointer-events-auto mt-[var(--space-5)]"
@@ -69,9 +69,8 @@ export default function Home() {
               lineHeight: "var(--leading-relaxed)",
             }}
           >
-            A small rocky world circling an ordinary star, two thirds of the way out along one arm
-            of an ordinary galaxy. From here the journey continues outward — through the solar
-            system, and backward through deep time. Those parts of the story are on their way.
+            A small rocky world around an ordinary star, out in one arm of an ordinary galaxy. From
+            here the story goes outward, and back in time. That part of the site is coming.
           </p>
         </section>
 
@@ -85,7 +84,7 @@ export default function Home() {
               lineHeight: "var(--leading-relaxed)",
             }}
           >
-            The exploration begins here soon.
+            The explorer opens soon.
           </p>
         </section>
       </div>

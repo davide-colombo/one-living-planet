@@ -18,7 +18,7 @@ export const HOLD_VH = 1.0;
 export const P2_VH = 2.6;
 
 /** Scroll speed (in viewport-heights/second) treated as a fling:
-    the snap correction then plays faster to stay out of the way. */
+    the glide then plays faster to stay out of the way. */
 const FAST_SCROLL_VHPS = 2.5;
 
 function solarClockLabel(phase: number): string {
@@ -74,14 +74,19 @@ export function Hero() {
   const [hintVisible, setHintVisible] = useState(false);
   // focused celestial body (system view): rig zooms in on it
   const [focused, setFocused] = useState<string | null>(null);
+  // the system and planet views hold the page still until a click
+  const [systemLocked, setSystemLocked] = useState(false);
+  const [lockHintVisible, setLockHintVisible] = useState(false);
   const [atTop, setAtTop] = useState(true);
   const focusedRef = useRef<string | null>(null);
-  const focusStartY = useRef(0);
+  const lockedRef = useRef(false);
+  const lockArmedRef = useRef(true);
+  const lockHintTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const copyRef = useRef<HTMLDivElement>(null);
   const spaceRef = useRef<HTMLDivElement>(null);
   const journeyRef = useRef({ p1: 0, p2: 0 });
 
-  /* ---- programmatic scrolling (pull-ins and snap transitions) ---- */
+  /* ---- programmatic scrolling (glides between the zones) ---- */
   const scrollAnim = useRef<number | null>(null);
 
   const cancelScrollAnim = useCallback(() => {
@@ -136,19 +141,26 @@ export function Hero() {
 
   const onFocusRequest = useCallback(
     (name: string | null) => {
+      setLockHintVisible(false);
       if (name === "earth") {
         // Earth's detailed view lives at its scroll anchor — go there.
         setFocused(null);
         focusedRef.current = null;
+        setSystemLocked(false);
         animateScrollTo(window.innerHeight * P1_VH, 1100);
         return;
       }
       setFocused(name);
       focusedRef.current = name;
-      focusStartY.current = window.scrollY;
     },
     [animateScrollTo],
   );
+
+  // Click on empty space while nothing is focused: the unlock gesture.
+  const onBackgroundClick = useCallback(() => {
+    setSystemLocked(false);
+    setLockHintVisible(false);
+  }, []);
 
   // Static visitors (reduced motion, no WebGL) get no scroll journey:
   // the page collapses the runways and the snap stays out of the way.
@@ -159,6 +171,31 @@ export function Hero() {
       delete document.documentElement.dataset.hero;
     };
   }, [mode]);
+
+  // While a view is locked the page cannot scroll; a scroll attempt
+  // shows the way out instead.
+  useEffect(() => {
+    const locked = focused !== null || systemLocked;
+    lockedRef.current = locked;
+    if (!locked) return;
+    const html = document.documentElement;
+    const prevOverflow = html.style.overflow;
+    html.style.overflow = "hidden";
+    const showWayOut = (e: Event) => {
+      if (e.cancelable && e.type === "touchmove") e.preventDefault();
+      setLockHintVisible(true);
+      clearTimeout(lockHintTimer.current);
+      lockHintTimer.current = setTimeout(() => setLockHintVisible(false), 2200);
+    };
+    window.addEventListener("wheel", showWayOut, { passive: true });
+    window.addEventListener("touchmove", showWayOut, { passive: false });
+    return () => {
+      html.style.overflow = prevOverflow;
+      clearTimeout(lockHintTimer.current);
+      window.removeEventListener("wheel", showWayOut);
+      window.removeEventListener("touchmove", showWayOut);
+    };
+  }, [focused, systemLocked]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- client-only init after hydration
@@ -176,8 +213,8 @@ export function Hero() {
   }, []);
 
   // One scroll handler drives the whole journey: 3D rig progress, the
-  // deep-space fade, copy fade, focus release, and — via a scroll-end
-  // debounce — the snap that forbids resting inside a transition.
+  // deep-space fade, copy fade, the glides that carry the visitor
+  // through the transitions, and the lock when the system view arrives.
   useEffect(() => {
     let raf = 0;
     let lastY = window.scrollY;
@@ -186,28 +223,40 @@ export function Hero() {
     let lastDir = 1; // +1 scrolling down, -1 scrolling up
     let snapTimer: ReturnType<typeof setTimeout> | undefined;
 
+    const anchors = () => {
+      const vh = window.innerHeight;
+      return {
+        vh,
+        earthAnchor: vh * P1_VH,
+        holdEnd: vh * (P1_VH + HOLD_VH),
+        systemAnchor: vh * (P1_VH + HOLD_VH + P2_VH),
+      };
+    };
+
+    const glideTarget = (y: number): number | null => {
+      const { vh, earthAnchor, holdEnd, systemAnchor } = anchors();
+      const enter = vh * 0.08;
+      if (y > enter && y < earthAnchor - enter) return lastDir >= 0 ? earthAnchor : 0;
+      if (y > holdEnd + enter && y < systemAnchor - enter) {
+        return lastDir >= 0 ? systemAnchor : holdEnd;
+      }
+      return null;
+    };
+
+    const startGlide = (y: number) => {
+      const target = glideTarget(y);
+      if (target === null) return;
+      const distance = Math.abs(target - y) / window.innerHeight;
+      const base = peakVel > FAST_SCROLL_VHPS ? 220 : 420;
+      animateScrollTo(target, Math.min(900, base + distance * 200));
+    };
+
+    // backstop for anything the in-flight glide missed
     const snapIfBetweenZones = () => {
       if (modeRef.current !== "webgl") return;
-      if (focusedRef.current !== null || scrollAnim.current !== null) return;
-      const vh = window.innerHeight;
-      const y = window.scrollY;
-      const earthAnchor = vh * P1_VH;
-      const holdEnd = vh * (P1_VH + HOLD_VH);
-      const systemAnchor = vh * (P1_VH + HOLD_VH + P2_VH);
-      const margin = vh * 0.1;
-      // The snap continues in the direction the visitor was going.
-      // Stopping partway never rolls them back where they came from.
-      let target: number | null = null;
-      if (y > margin && y < earthAnchor - margin) {
-        target = lastDir >= 0 ? earthAnchor : 0;
-      } else if (y > holdEnd + margin && y < systemAnchor - margin) {
-        target = lastDir >= 0 ? systemAnchor : holdEnd;
-      }
-      if (target === null) return;
-      // quick after a fling, unhurried after a gentle stop; never a jump
-      const distance = Math.abs(target - y) / vh;
-      const base = peakVel > FAST_SCROLL_VHPS ? 220 : 380;
-      animateScrollTo(target, Math.min(700, base + distance * 180));
+      if (focusedRef.current !== null || lockedRef.current) return;
+      if (scrollAnim.current !== null) return;
+      startGlide(window.scrollY);
     };
 
     const onScroll = () => {
@@ -221,10 +270,16 @@ export function Hero() {
       lastY = y;
       lastT = now;
 
-      // scrolling away releases a focused body
-      if (focusedRef.current !== null && Math.abs(y - focusStartY.current) > vh * 0.15) {
-        focusedRef.current = null;
-        setFocused(null);
+      // Entering a transition never leaves the visitor parked inside
+      // it: the glide picks them up right away and carries them
+      // through in the direction they were going.
+      if (
+        modeRef.current === "webgl" &&
+        !lockedRef.current &&
+        focusedRef.current === null &&
+        scrollAnim.current === null
+      ) {
+        startGlide(y);
       }
 
       clearTimeout(snapTimer);
@@ -238,6 +293,7 @@ export function Hero() {
           }
           return;
         }
+        const { systemAnchor } = anchors();
         const p1 = Math.min(1, Math.max(0, y / (vh * P1_VH)));
         const p2 = Math.min(1, Math.max(0, (y - vh * (P1_VH + HOLD_VH)) / (vh * P2_VH)));
         journeyRef.current.p1 = p1;
@@ -249,11 +305,20 @@ export function Hero() {
           copyRef.current.style.opacity = Math.max(0, 1 - y / (vh * 0.4)).toFixed(3);
         }
         setAtTop(y < vh * 0.8);
+
+        // Arriving at the system view locks the page until a click.
+        if (Math.abs(y - systemAnchor) > vh * 0.5) lockArmedRef.current = true;
+        else if (Math.abs(y - systemAnchor) < vh * 0.05 && lockArmedRef.current) {
+          lockArmedRef.current = false;
+          setSystemLocked(true);
+        }
       });
     };
 
     // a manual wheel/touch interrupts any programmatic scroll
-    const onManualScroll = () => cancelScrollAnim();
+    const onManualScroll = () => {
+      if (!lockedRef.current) cancelScrollAnim();
+    };
 
     onScroll();
     window.addEventListener("scroll", onScroll, { passive: true });
@@ -299,6 +364,7 @@ export function Hero() {
           journeyRef={journeyRef}
           focused={focused}
           onFocusRequest={onFocusRequest}
+          onBackgroundClick={onBackgroundClick}
           onInteractionChange={onInteractionChange}
         />
       ) : null}
@@ -348,7 +414,7 @@ export function Hero() {
             className="mt-[var(--space-4)] max-w-md"
             style={{ color: "var(--fg-muted)", fontSize: "var(--text-body)" }}
           >
-            One living planet, seen the way it is lit right now — from where you are.
+            You are looking at Earth as it is lit right now.
           </p>
 
           {/* scroll cue */}
@@ -370,21 +436,36 @@ export function Hero() {
         </div>
       </div>
 
-      {/* focused body caption */}
+      {/* focused body name */}
       <div
         aria-hidden
         className="pointer-events-none absolute bottom-[var(--space-7)] left-1/2 -translate-x-1/2 text-center uppercase"
         style={{
           fontSize: "var(--text-caption)",
           letterSpacing: "var(--tracking-caps)",
-          color: "var(--fg-muted)",
+          color: "var(--fg)",
           opacity: focused ? 1 : 0,
           transition: "opacity var(--duration-slow) var(--ease-gentle)",
         }}
       >
-        <span style={{ color: "var(--fg)" }}>{focused ?? " "}</span>
-        <span className="mx-2">·</span>
-        drag to spin · click away to release
+        {focused ?? " "}
+      </div>
+
+      {/* the way out of a locked view, shown when scrolling is tried */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute bottom-[14svh] left-1/2 -translate-x-1/2 rounded-full px-4 py-1.5 uppercase"
+        style={{
+          fontSize: "var(--text-caption)",
+          letterSpacing: "var(--tracking-caps)",
+          color: "var(--fg)",
+          background: "color-mix(in oklab, var(--bg-a) 60%, transparent)",
+          boxShadow: "inset 0 0 0 1px color-mix(in oklab, var(--fg) 18%, transparent)",
+          opacity: lockHintVisible ? 1 : 0,
+          transition: "opacity var(--duration-slow) var(--ease-gentle)",
+        }}
+      >
+        {focused ? "Click anywhere to exit the planet view" : "Click anywhere to unlock scrolling"}
       </div>
 
       {/* first-visit hint: the planet can be touched */}
