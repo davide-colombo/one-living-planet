@@ -1,53 +1,89 @@
 import { Hero } from "@/components/hero/Hero";
 
-// Chapter structure from docs/concept.md — the hero is chapter 01, "Earthrise".
-const CHAPTERS = [
-  { id: "living-planet", n: "02", title: "The living planet" },
-  { id: "one-tree", n: "03", title: "One tree" },
-  { id: "in-danger", n: "04", title: "In danger" },
-  { id: "explore", n: "05", title: "Explore" },
-];
-
 export default function Home() {
   return (
     <main>
-      {/* The hero pins to the viewport; chapters slide over the globe. */}
+      {/* The hero pins to the viewport; the story slides over the globe. */}
       <div className="sticky top-0 z-0 h-svh">
         <Hero />
       </div>
       <div className="relative z-10">
         {/* journey runway: scroll here pulls the camera back from the
-            limb to the whole planet before the chapters arrive
+            limb to the whole planet before the story arrives
             (height = JOURNEY_VH in Hero.tsx) */}
         <div aria-hidden className="h-[160svh]" />
-        {CHAPTERS.map((c) => (
-          <section
-            key={c.id}
-            id={c.id}
-            className="mx-auto flex min-h-[70svh] max-w-5xl flex-col justify-center px-[var(--space-5)]"
+
+        {/* the planet itself */}
+        <section
+          id="planet"
+          className="mx-auto flex min-h-[90svh] max-w-2xl flex-col justify-center px-[var(--space-5)]"
+        >
+          <p
+            className="font-medium"
+            style={{
+              fontSize: "var(--text-title-2)",
+              letterSpacing: "var(--tracking-title)",
+              lineHeight: "var(--leading-snug)",
+            }}
           >
-            <p
-              className="font-mono"
-              style={{
-                fontSize: "var(--text-caption)",
-                letterSpacing: "var(--tracking-caps)",
-                color: "var(--accent)",
-              }}
-            >
-              {c.n}
-            </p>
-            <h2
-              className="mt-[var(--space-2)] font-semibold"
-              style={{
-                fontSize: "var(--text-title-1)",
-                letterSpacing: "var(--tracking-title)",
-                color: "var(--fg)",
-              }}
-            >
-              {c.title}
-            </h2>
-          </section>
-        ))}
+            Third from the Sun, four and a half billion years old — and, as far as anyone knows, the
+            only world that has ever been alive.
+          </p>
+          <p
+            className="mt-[var(--space-5)]"
+            style={{
+              color: "var(--fg-muted)",
+              fontSize: "var(--text-body)",
+              lineHeight: "var(--leading-relaxed)",
+            }}
+          >
+            Around 2.13 million species have been described so far. The best estimate puts the real
+            number near 8.7 million — which means most of life on Earth has never been named,
+            photographed, or understood. This is a journey through what we know.
+          </p>
+        </section>
+
+        {/* sliding outward: the solar system */}
+        <section
+          id="solar-system"
+          className="mx-auto flex min-h-[90svh] max-w-2xl flex-col justify-center px-[var(--space-5)]"
+        >
+          <p
+            className="font-medium"
+            style={{
+              fontSize: "var(--text-title-2)",
+              letterSpacing: "var(--tracking-title)",
+              lineHeight: "var(--leading-snug)",
+            }}
+          >
+            Step back far enough, and Earth becomes one of eight.
+          </p>
+          <p
+            className="mt-[var(--space-5)]"
+            style={{
+              color: "var(--fg-muted)",
+              fontSize: "var(--text-body)",
+              lineHeight: "var(--leading-relaxed)",
+            }}
+          >
+            A small rocky world circling an ordinary star, two thirds of the way out along one arm
+            of an ordinary galaxy. From here the journey continues outward — through the solar
+            system, and backward through deep time. Those parts of the story are on their way.
+          </p>
+        </section>
+
+        {/* quiet close, for now */}
+        <section className="mx-auto flex min-h-[50svh] max-w-2xl flex-col justify-center px-[var(--space-5)] pb-[var(--space-10)]">
+          <p
+            style={{
+              color: "var(--fg-muted)",
+              fontSize: "var(--text-body-sm)",
+              lineHeight: "var(--leading-relaxed)",
+            }}
+          >
+            The exploration begins here soon.
+          </p>
+        </section>
       </div>
     </main>
   );

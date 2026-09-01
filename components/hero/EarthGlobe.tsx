@@ -5,7 +5,7 @@
    reads them. */
 
 import { Suspense, useEffect, useMemo, useRef, useState, type RefObject } from "react";
-import { Canvas, useFrame, useLoader } from "@react-three/fiber";
+import { Canvas, useFrame, useLoader, useThree } from "@react-three/fiber";
 import * as THREE from "three";
 import { sunDirection, longitudeFromUtcOffset } from "@/lib/solar";
 import { EARTH_FRAGMENT, EARTH_VERTEX } from "./earth-shaders";
@@ -23,7 +23,10 @@ function yawForLongitude(lonDeg: number): number {
   return (-(lonDeg + 90) * Math.PI) / 180;
 }
 
+const DEG = Math.PI / 180;
 const DRIFT_RAD_PER_S = 0.006; // full turn ≈ 17 min — barely perceptible
+const TILT_LIMIT = 1.1; // rad — how far the planet can be tilted by hand
+const RESUME_DRIFT_AFTER_MS = 2500;
 
 /** Scroll journey: close-up on the limb → the whole planet in space. */
 const VIEW_START = { y: -1.55, scale: 1.5 };
@@ -31,6 +34,18 @@ const VIEW_END = { y: -0.15, scale: 0.72 };
 
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 const smooth = (t: number) => t * t * (3 - 2 * t);
+const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+
+/** Shared mutable interaction state — written by DragControls, read everywhere. */
+interface InteractionState {
+  dragging: boolean;
+  /** yaw inertia, rad/s */
+  vel: number;
+  /** ms timestamp of the last pointer activity */
+  lastActiveMs: number;
+  /** 0–1 target for graticule/axis visibility */
+  reveal: boolean;
+}
 
 function configureTexture(t: THREE.Texture) {
   t.wrapS = THREE.RepeatWrapping;
@@ -53,15 +68,16 @@ function useProgressiveTexture(lowUrl: string, highUrl: string): THREE.Texture {
   return texture;
 }
 
-interface EarthProps {
+interface EarthSurfaceProps {
   rimColor: [number, number, number];
   drift: boolean;
   /** epoch ms for the sun position (dev time-travel passes a shifted clock) */
   atMs: number;
+  spinRef: RefObject<THREE.Group | null>;
+  interaction: RefObject<InteractionState>;
 }
 
-function Earth({ rimColor, drift, atMs }: EarthProps) {
-  const groupRef = useRef<THREE.Group>(null);
+function EarthSurface({ rimColor, drift, atMs, spinRef, interaction }: EarthSurfaceProps) {
   const dayMap = useProgressiveTexture(
     "/textures/earth-day-1k.webp",
     "/textures/earth-day-4k.webp",
@@ -98,29 +114,241 @@ function Earth({ rimColor, drift, atMs }: EarthProps) {
     surfaceMaterial.uniforms.rimColor.value.setRGB(...rimColor);
   }, [surfaceMaterial, rimColor]);
 
-  // Start with the visitor's approximate longitude facing the camera.
-  const initialYaw = useMemo(
-    () => yawForLongitude(longitudeFromUtcOffset(new Date().getTimezoneOffset())),
-    [],
-  );
-
   useFrame((_, delta) => {
-    const group = groupRef.current;
+    const group = spinRef.current;
     if (!group) return;
-    if (drift) group.rotation.y += delta * DRIFT_RAD_PER_S;
-    // Keep lighting glued to geography while the globe turns.
+    const it = interaction.current;
+    const settled =
+      !it.dragging &&
+      Math.abs(it.vel) < 0.01 &&
+      performance.now() - it.lastActiveMs > RESUME_DRIFT_AFTER_MS;
+    if (drift && settled) group.rotation.y += delta * DRIFT_RAD_PER_S;
+    // Keep lighting glued to geography however the globe is turned.
     const sunWorld = surfaceMaterial.uniforms.sunDir.value as THREE.Vector3;
     sunWorld.copy(sunEarthFixed).applyEuler(group.rotation).normalize();
   });
 
   return (
-    <group ref={groupRef} rotation={[0, initialYaw, 0]}>
-      <mesh material={surfaceMaterial}>
-        <sphereGeometry args={[1, 96, 96]} />
-      </mesh>
+    <mesh material={surfaceMaterial}>
+      <sphereGeometry args={[1, 96, 96]} />
+    </mesh>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* graticule + axis — revealed while the visitor handles the planet   */
+/* ------------------------------------------------------------------ */
+
+function circlePoints(lat: number, radius: number, segments = 128): number[] {
+  const pts: number[] = [];
+  const r = Math.cos(lat * DEG) * radius;
+  const y = Math.sin(lat * DEG) * radius;
+  for (let i = 0; i < segments; i++) {
+    const a = (i / segments) * Math.PI * 2;
+    const b = ((i + 1) / segments) * Math.PI * 2;
+    pts.push(r * Math.cos(a), y, r * Math.sin(a), r * Math.cos(b), y, r * Math.sin(b));
+  }
+  return pts;
+}
+
+function meridianPoints(lonDeg: number, radius: number, segments = 96): number[] {
+  const pts: number[] = [];
+  const lon = lonDeg * DEG;
+  for (let i = 0; i < segments; i++) {
+    const a = -85 * DEG + (i / segments) * 170 * DEG;
+    const b = -85 * DEG + ((i + 1) / segments) * 170 * DEG;
+    pts.push(
+      Math.cos(a) * Math.sin(lon) * radius,
+      Math.sin(a) * radius,
+      Math.cos(a) * Math.cos(lon) * radius,
+      Math.cos(b) * Math.sin(lon) * radius,
+      Math.sin(b) * radius,
+      Math.cos(b) * Math.cos(lon) * radius,
+    );
+  }
+  return pts;
+}
+
+function toLineGeometry(pts: number[]): THREE.BufferGeometry {
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(pts), 3));
+  return g;
+}
+
+/** Fades a line material toward `max` while the interaction is live. */
+function useRevealOpacity(
+  ref: RefObject<THREE.LineBasicMaterial | null>,
+  interaction: RefObject<InteractionState>,
+  max: number,
+) {
+  useFrame((_, delta) => {
+    const m = ref.current;
+    if (!m) return;
+    const target = interaction.current.reveal ? max : 0;
+    const k = 1 - Math.exp(-6 * delta);
+    m.opacity += (target - m.opacity) * k;
+    m.visible = m.opacity > 0.004;
+  });
+}
+
+function Graticule({ interaction }: { interaction: RefObject<InteractionState> }) {
+  const R = 1.004;
+  const gridGeom = useMemo(() => {
+    const pts: number[] = [];
+    for (let lat = -75; lat <= 75; lat += 15) {
+      if (lat !== 0) pts.push(...circlePoints(lat, R));
+    }
+    for (let lon = 0; lon < 360; lon += 15) pts.push(...meridianPoints(lon, R));
+    return toLineGeometry(pts);
+  }, []);
+  const equatorGeom = useMemo(() => toLineGeometry(circlePoints(0, R, 192)), []);
+  const axisGeom = useMemo(
+    () => toLineGeometry([0, -1.45, 0, 0, -1.004, 0, 0, 1.004, 0, 0, 1.45, 0]),
+    [],
+  );
+
+  const gridMat = useRef<THREE.LineBasicMaterial>(null);
+  const equatorMat = useRef<THREE.LineBasicMaterial>(null);
+  const axisMat = useRef<THREE.LineBasicMaterial>(null);
+  useRevealOpacity(gridMat, interaction, 0.22);
+  useRevealOpacity(equatorMat, interaction, 0.55);
+  useRevealOpacity(axisMat, interaction, 0.7);
+
+  return (
+    <group>
+      <lineSegments geometry={gridGeom}>
+        <lineBasicMaterial
+          ref={gridMat}
+          color="#a9c2e8"
+          transparent
+          opacity={0}
+          depthWrite={false}
+        />
+      </lineSegments>
+      <lineSegments geometry={equatorGeom}>
+        <lineBasicMaterial
+          ref={equatorMat}
+          color="#cfe0ff"
+          transparent
+          opacity={0}
+          depthWrite={false}
+        />
+      </lineSegments>
+      <lineSegments geometry={axisGeom}>
+        <lineBasicMaterial
+          ref={axisMat}
+          color="#e8f0ff"
+          transparent
+          opacity={0}
+          depthWrite={false}
+        />
+      </lineSegments>
     </group>
   );
 }
+
+/* ------------------------------------------------------------------ */
+/* drag: spin (yaw) + tilt (pitch), with inertia                       */
+/* ------------------------------------------------------------------ */
+
+interface DragControlsProps {
+  spinRef: RefObject<THREE.Group | null>;
+  interaction: RefObject<InteractionState>;
+  onInteractionChange?: (active: boolean) => void;
+}
+
+function DragControls({ spinRef, interaction, onInteractionChange }: DragControlsProps) {
+  const { gl } = useThree();
+
+  useEffect(() => {
+    const el = gl.domElement;
+    // vertical swipes keep scrolling the page on touch; horizontal drags spin
+    el.style.touchAction = "pan-y";
+    el.style.cursor = "grab";
+
+    let lastX = 0;
+    let lastY = 0;
+    let lastT = 0;
+    let endTimer: ReturnType<typeof setTimeout> | undefined;
+
+    const onDown = (e: PointerEvent) => {
+      if (e.button !== 0 && e.pointerType === "mouse") return;
+      try {
+        el.setPointerCapture(e.pointerId);
+      } catch {
+        /* capture is a nicety; dragging works without it */
+      }
+      const it = interaction.current;
+      it.dragging = true;
+      it.vel = 0;
+      it.reveal = true;
+      it.lastActiveMs = performance.now();
+      lastX = e.clientX;
+      lastY = e.clientY;
+      lastT = performance.now();
+      el.style.cursor = "grabbing";
+      clearTimeout(endTimer);
+      onInteractionChange?.(true);
+    };
+
+    const onMove = (e: PointerEvent) => {
+      const it = interaction.current;
+      if (!it.dragging) return;
+      const group = spinRef.current;
+      if (!group) return;
+      const now = performance.now();
+      const dx = e.clientX - lastX;
+      const dy = e.clientY - lastY;
+      const dYaw = dx * 0.005;
+      group.rotation.y += dYaw;
+      group.rotation.x = clamp(group.rotation.x + dy * 0.004, -TILT_LIMIT, TILT_LIMIT);
+      const dt = Math.max(8, now - lastT) / 1000;
+      it.vel = 0.75 * it.vel + 0.25 * (dYaw / dt);
+      it.lastActiveMs = now;
+      lastX = e.clientX;
+      lastY = e.clientY;
+      lastT = now;
+    };
+
+    const onUp = () => {
+      const it = interaction.current;
+      if (!it.dragging) return;
+      it.dragging = false;
+      it.lastActiveMs = performance.now();
+      el.style.cursor = "grab";
+      clearTimeout(endTimer);
+      endTimer = setTimeout(() => {
+        interaction.current.reveal = false;
+        onInteractionChange?.(false);
+      }, RESUME_DRIFT_AFTER_MS);
+    };
+
+    el.addEventListener("pointerdown", onDown);
+    el.addEventListener("pointermove", onMove);
+    el.addEventListener("pointerup", onUp);
+    el.addEventListener("pointercancel", onUp);
+    return () => {
+      clearTimeout(endTimer);
+      el.removeEventListener("pointerdown", onDown);
+      el.removeEventListener("pointermove", onMove);
+      el.removeEventListener("pointerup", onUp);
+      el.removeEventListener("pointercancel", onUp);
+    };
+  }, [gl, spinRef, interaction, onInteractionChange]);
+
+  // yaw inertia after release
+  useFrame((_, delta) => {
+    const it = interaction.current;
+    const group = spinRef.current;
+    if (!group || it.dragging || Math.abs(it.vel) < 0.001) return;
+    group.rotation.y += it.vel * delta;
+    it.vel *= Math.exp(-2.2 * delta);
+  });
+
+  return null;
+}
+
+/* ------------------------------------------------------------------ */
 
 /**
  * The sun, cresting from behind the planet at the center of the limb —
@@ -237,11 +465,33 @@ export interface EarthGlobeProps {
   atMs: number;
   /** scroll journey progress 0–1, written by the hero's scroll handler */
   progressRef: RefObject<number>;
+  /** fires when the visitor picks up / releases the planet */
+  onInteractionChange?: (active: boolean) => void;
   /** disable the idle drift (reduced motion) */
   drift?: boolean;
 }
 
-export default function EarthGlobe({ rimColor, atMs, progressRef, drift = true }: EarthGlobeProps) {
+export default function EarthGlobe({
+  rimColor,
+  atMs,
+  progressRef,
+  onInteractionChange,
+  drift = true,
+}: EarthGlobeProps) {
+  const spinRef = useRef<THREE.Group>(null);
+  const interaction = useRef<InteractionState>({
+    dragging: false,
+    vel: 0,
+    lastActiveMs: 0,
+    reveal: false,
+  });
+
+  // Start with the visitor's approximate longitude facing the camera.
+  const initialYaw = useMemo(
+    () => yawForLongitude(longitudeFromUtcOffset(new Date().getTimezoneOffset())),
+    [],
+  );
+
   return (
     <Canvas
       dpr={[1, 2]}
@@ -253,9 +503,23 @@ export default function EarthGlobe({ rimColor, atMs, progressRef, drift = true }
       <Suspense fallback={null}>
         <Stars progressRef={progressRef} />
         <SceneRig progressRef={progressRef}>
-          <Earth rimColor={rimColor} drift={drift} atMs={atMs} />
+          <group ref={spinRef} rotation={[0, initialYaw, 0]}>
+            <EarthSurface
+              rimColor={rimColor}
+              drift={drift}
+              atMs={atMs}
+              spinRef={spinRef}
+              interaction={interaction}
+            />
+            <Graticule interaction={interaction} />
+          </group>
           <SunGlow />
         </SceneRig>
+        <DragControls
+          spinRef={spinRef}
+          interaction={interaction}
+          onInteractionChange={onInteractionChange}
+        />
       </Suspense>
     </Canvas>
   );

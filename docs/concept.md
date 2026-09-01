@@ -1,6 +1,6 @@
 # Earth Explorer — Concept and Feasibility Brief
 
-*Working title: none yet. Draft 1 — 2026-09-01. Author: Claude, for Davide Colombo.*
+_Working title: none yet. Draft 1 — 2026-09-01. Author: Claude, for Davide Colombo._
 
 ## Verdict
 
@@ -17,13 +17,13 @@ The idea is viable, but not as pitched. As pitched it is five products — biodi
 - **NASA Worldview / GIBS**: daily full-resolution satellite imagery of the whole planet, browsable interactively.
 - **NASA Eyes**: the interactive solar system.
 
-None of these is a consumer product with Apple-grade motion design and a narrative arc; all of them are tools or outreach sites made by scientists. That is your opening. It also means the correct pitch is not "the data nobody shows" but "the experience nobody has built" — closer to what Apple did with Maps' flyover mode, or what *inaturalist meets Apple TV's* Planet Earth *would look like as a website*.
+None of these is a consumer product with Apple-grade motion design and a narrative arc; all of them are tools or outreach sites made by scientists. That is your opening. It also means the correct pitch is not "the data nobody shows" but "the experience nobody has built" — closer to what Apple did with Maps' flyover mode, or what _inaturalist meets Apple TV's_ Planet Earth _would look like as a website_.
 
 ## What to cut, and why
 
-**Weather** is a commodity; every visitor has three weather apps. Keep weather only as *ambient context* on the globe (live cloud layer from GIBS, current conditions when a place is focused via Open-Meteo), never as a feature you market. The "prepare for travelling" app is a different product with a different audience and brutal competition (Google Travel, Wanderlog, every airline app); drop it from this concept entirely.
+**Weather** is a commodity; every visitor has three weather apps. Keep weather only as _ambient context_ on the globe (live cloud layer from GIBS, current conditions when a place is focused via Open-Meteo), never as a feature you market. The "prepare for travelling" app is a different product with a different audience and brutal competition (Google Travel, Wanderlog, every airline app); drop it from this concept entirely.
 
-**Wars and geopolitics** carry the highest editorial and licensing risk. ACLED — the best-known conflict event dataset — has an EULA that prohibits redistributing or exposing its raw data to end users, restricts access tiers behind registration, and is enforced; you cannot legally power a public map with it. UCDP's Georeferenced Event Dataset (Uppsala) has a public API and is free for non-commercial use, so a "conflict snapshot" layer is *technically* feasible — but a solo-maintained site displaying active wars next to cute animal facts is a tonal and reputational minefield. Defer to phase 3 at the earliest, and only with a serious editorial framing; dropping it is defensible.
+**Wars and geopolitics** carry the highest editorial and licensing risk. ACLED — the best-known conflict event dataset — has an EULA that prohibits redistributing or exposing its raw data to end users, restricts access tiers behind registration, and is enforced; you cannot legally power a public map with it. UCDP's Georeferenced Event Dataset (Uppsala) has a public API and is free for non-commercial use, so a "conflict snapshot" layer is _technically_ feasible — but a solo-maintained site displaying active wars next to cute animal facts is a tonal and reputational minefield. Defer to phase 3 at the earliest, and only with a serious editorial framing; dropping it is defensible.
 
 **Glaciers** are the opposite: excellent phase-2 material. The data is static, global, free, and beautiful — Randolph Glacier Inventory 7.0 (~275,000 glacier outlines via NSIDC/GLIMS as shapefiles, convertible to vector tiles at build time) plus WGMS mass-balance time series for the "and they are disappearing" narrative. No API keys, no rate limits, no editorial risk, and it serves the site's stated mission (why biodiversity and the environment are in danger).
 
@@ -33,20 +33,20 @@ That leaves the MVP: **landing experience + biodiversity explorer**.
 
 ## Data sources (verified 2026-09)
 
-| Layer | Source | Access | License / constraint |
-|---|---|---|---|
-| Species occurrence maps | GBIF Maps API v2 (`api.gbif.org/v2/map`) | Free tile service (raster or vector), filterable by taxon, year, country | Open; per-dataset CC licenses; attribution |
-| Species lists per region | Map of Life API; or precomputed from GBIF at build time | Public API | Check MOL terms for commercial reuse |
-| Region backbone | RESOLVE Ecoregions 2017 (846 terrestrial ecoregions) | Static download | CC-BY — ideal curation unit for "what lives here" |
-| Species photos / observations | iNaturalist API | Free, rate-limited | Photo licenses vary — filter to CC0/CC-BY |
-| Species facts / summaries | Wikidata + Wikipedia REST APIs | Free | CC-BY-SA |
-| Conservation status | IUCN Red List API | Free token, citation required | No bulk redistribution |
-| Satellite imagery, night lights, clouds | NASA GIBS WMTS (Blue Marble, Black Marble/VIIRS, daily true color) | Free tile service | Open, attribution |
-| Glaciers | RGI 7.0 via NSIDC; WGMS for time series | Static download | Open, cite |
-| Weather (ambient only) | Open-Meteo | Free, no key, ≤10k calls/day non-commercial | CC-BY 4.0; paid tier if ever commercial |
-| Conflict events (deferred) | UCDP GED API | Free API | Non-commercial only; ACLED not usable |
-| Country facts | World Bank API, REST Countries | Free | Open |
-| Basemap vectors | Natural Earth | Static download | Public domain |
+| Layer                                   | Source                                                             | Access                                                                   | License / constraint                              |
+| --------------------------------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------ | ------------------------------------------------- |
+| Species occurrence maps                 | GBIF Maps API v2 (`api.gbif.org/v2/map`)                           | Free tile service (raster or vector), filterable by taxon, year, country | Open; per-dataset CC licenses; attribution        |
+| Species lists per region                | Map of Life API; or precomputed from GBIF at build time            | Public API                                                               | Check MOL terms for commercial reuse              |
+| Region backbone                         | RESOLVE Ecoregions 2017 (846 terrestrial ecoregions)               | Static download                                                          | CC-BY — ideal curation unit for "what lives here" |
+| Species photos / observations           | iNaturalist API                                                    | Free, rate-limited                                                       | Photo licenses vary — filter to CC0/CC-BY         |
+| Species facts / summaries               | Wikidata + Wikipedia REST APIs                                     | Free                                                                     | CC-BY-SA                                          |
+| Conservation status                     | IUCN Red List API                                                  | Free token, citation required                                            | No bulk redistribution                            |
+| Satellite imagery, night lights, clouds | NASA GIBS WMTS (Blue Marble, Black Marble/VIIRS, daily true color) | Free tile service                                                        | Open, attribution                                 |
+| Glaciers                                | RGI 7.0 via NSIDC; WGMS for time series                            | Static download                                                          | Open, cite                                        |
+| Weather (ambient only)                  | Open-Meteo                                                         | Free, no key, ≤10k calls/day non-commercial                              | CC-BY 4.0; paid tier if ever commercial           |
+| Conflict events (deferred)              | UCDP GED API                                                       | Free API                                                                 | Non-commercial only; ACLED not usable             |
+| Country facts                           | World Bank API, REST Countries                                     | Free                                                                     | Open                                              |
+| Basemap vectors                         | Natural Earth                                                      | Static download                                                          | Public domain                                     |
 
 Two things follow from this table. First, the MVP needs **no backend**: everything is either a public tile service or static data you precompute into JSON/vector tiles at build time. Second, several key licenses are **non-commercial** (Open-Meteo free tier, UCDP), which constrains monetization later — fine for now, but decide before adding ads or paid tiers.
 
@@ -66,7 +66,7 @@ Non-negotiable constraints: a `prefers-reduced-motion` and low-power fallback (s
 Structure it as 4–6 scroll chapters, not an infinite feed — you said it yourself: not too much information at once.
 
 1. **Earthrise.** The half-lit globe, sun rim behind, palette synced to the visitor's local solar time. One line of copy. No UI chrome.
-2. **The living planet.** ~2.13 million described species; best-known estimate ~8.7 million total (Mora et al. 2011, *PLOS Biology*) — most of life is still undescribed. Animated counters restrained to one use.
+2. **The living planet.** ~2.13 million described species; best-known estimate ~8.7 million total (Mora et al. 2011, _PLOS Biology_) — most of life is still undescribed. Animated counters restrained to one use.
 3. **One tree.** A minimal, stylized phylogeny teaser (not a OneZoom clone — a designed illustration that links out or into a light embed).
 4. **In danger.** ~1 million species threatened with extinction (IPBES 2019 Global Assessment). This is the mission statement of the site and the bridge to the explorer.
 5. **Explore.** CTA: dive into the globe.
@@ -103,5 +103,5 @@ Whether this is a portfolio/science-communication project or a product with reve
 - Open-Meteo — open-meteo.com
 - UCDP — ucdp.uu.se/apidocs; ACLED EULA — acleddata.com/eula
 - OneZoom — onezoom.org; Ancient Earth — dinosaurpictures.org/ancient-earth
-- Mora et al. 2011, "How Many Species Are There on Earth and in the Ocean?", *PLOS Biology* 9(8)
+- Mora et al. 2011, "How Many Species Are There on Earth and in the Ocean?", _PLOS Biology_ 9(8)
 - IPBES 2019, Global Assessment Report on Biodiversity and Ecosystem Services

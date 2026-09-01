@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { oklchToRgb, paletteAtPhase, paletteToCssVars } from "@/lib/palette";
 import { localSolarPhase, localTimezone } from "@/lib/solar";
 import { StaticHero } from "./StaticHero";
@@ -47,6 +47,8 @@ function devTimeOffsetMs(): number {
   return delta * 86_400_000;
 }
 
+const TOUCHED_KEY = "earth-explorer:touched";
+
 export function Hero() {
   // Server render carries phase 0 (night, matching the CSS defaults);
   // the real solar phase arrives right after hydration.
@@ -54,9 +56,41 @@ export function Hero() {
   const [mode, setMode] = useState<HeroMode>("loading");
   const [timezone, setTimezone] = useState("");
   const [clockMs, setClockMs] = useState<number | null>(null);
+  // "interaction mode": the visitor has picked up the planet — every
+  // distraction fades out until they let go.
+  const [interacting, setInteracting] = useState(false);
+  const [hintVisible, setHintVisible] = useState(false);
   const copyRef = useRef<HTMLDivElement>(null);
   const spaceRef = useRef<HTMLDivElement>(null);
   const progressRef = useRef(0);
+
+  // First-visit hint, until the planet has been touched once.
+  useEffect(() => {
+    if (mode !== "webgl") return;
+    let touched = false;
+    try {
+      touched = localStorage.getItem(TOUCHED_KEY) === "1";
+    } catch {
+      /* storage unavailable — show the hint */
+    }
+    if (touched) return;
+    const id = setTimeout(() => setHintVisible(true), 2500);
+    return () => clearTimeout(id);
+  }, [mode]);
+
+  // Stable identity: a fresh closure would re-run the globe's pointer
+  // effect on every render, resetting a drag in progress.
+  const onInteractionChange = useCallback((active: boolean) => {
+    setInteracting(active);
+    if (active) {
+      setHintVisible(false);
+      try {
+        localStorage.setItem(TOUCHED_KEY, "1");
+      } catch {
+        /* fine — the hint will just show again next visit */
+      }
+    }
+  }, []);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- client-only init after hydration
@@ -124,64 +158,96 @@ export function Hero() {
       />
 
       {mode === "webgl" && clockMs !== null ? (
-        <EarthGlobe rimColor={rimRgb} atMs={clockMs} progressRef={progressRef} />
+        <EarthGlobe
+          rimColor={rimRgb}
+          atMs={clockMs}
+          progressRef={progressRef}
+          onInteractionChange={onInteractionChange}
+        />
       ) : null}
       {mode === "static" ? <StaticHero /> : null}
 
-      {/* copy */}
+      {/* copy — outer layer fades with scroll, inner layer retreats
+          into "interaction mode" while the visitor handles the planet */}
       <div
         ref={copyRef}
         className="pointer-events-none absolute inset-0 flex flex-col items-center px-[var(--space-5)] pt-[12svh] text-center"
       >
-        <p
-          className="font-medium uppercase"
+        <div
+          className="flex w-full flex-1 flex-col items-center"
           style={{
-            fontSize: "var(--text-caption)",
-            letterSpacing: "var(--tracking-caps)",
-            color: "var(--accent)",
+            opacity: interacting ? 0 : 1,
+            transition: "opacity var(--duration-slow) var(--ease-gentle)",
           }}
         >
-          {phase !== null ? (
-            <>
-              Solar time {solarClockLabel(phase)}
-              {timezone ? ` · ${timezone.replace("_", " ")}` : ""}
-            </>
-          ) : (
-            " "
-          )}
-        </p>
-        <h1
-          className="mt-[var(--space-3)] font-semibold"
-          style={{
-            fontSize: "var(--text-hero)",
-            letterSpacing: "var(--tracking-display)",
-            lineHeight: "var(--leading-tight)",
-          }}
-        >
-          Earth
-        </h1>
-        <p
-          className="mt-[var(--space-4)] max-w-md"
-          style={{ color: "var(--fg-muted)", fontSize: "var(--text-body)" }}
-        >
-          One living planet, seen the way it is lit right now — from where you are.
-        </p>
+          <p
+            className="font-medium uppercase"
+            style={{
+              fontSize: "var(--text-caption)",
+              letterSpacing: "var(--tracking-caps)",
+              color: "var(--accent)",
+            }}
+          >
+            {phase !== null ? (
+              <>
+                Solar time {solarClockLabel(phase)}
+                {timezone ? ` · ${timezone.replace("_", " ")}` : ""}
+              </>
+            ) : (
+              " "
+            )}
+          </p>
+          <h1
+            className="mt-[var(--space-3)] font-semibold"
+            style={{
+              fontSize: "var(--text-hero)",
+              letterSpacing: "var(--tracking-display)",
+              lineHeight: "var(--leading-tight)",
+            }}
+          >
+            Earth
+          </h1>
+          <p
+            className="mt-[var(--space-4)] max-w-md"
+            style={{ color: "var(--fg-muted)", fontSize: "var(--text-body)" }}
+          >
+            One living planet, seen the way it is lit right now — from where you are.
+          </p>
 
-        {/* scroll cue */}
-        <a
-          href="#living-planet"
-          className="pointer-events-auto absolute bottom-[var(--space-6)] left-1/2 -translate-x-1/2 rounded-full px-4 py-1.5"
-          style={{
-            fontSize: "var(--text-caption)",
-            letterSpacing: "var(--tracking-caps)",
-            color: "var(--fg-muted)",
-            background: "color-mix(in oklab, var(--bg-a) 45%, transparent)",
-            textTransform: "uppercase",
-            transition: "color var(--duration-fast) var(--ease-out)",
-          }}
-        >
-          Begin
-        </a>
+          {/* scroll cue */}
+          <a
+            href="#planet"
+            className="absolute bottom-[var(--space-6)] left-1/2 -translate-x-1/2 rounded-full px-4 py-1.5"
+            style={{
+              pointerEvents: interacting ? "none" : "auto",
+              fontSize: "var(--text-caption)",
+              letterSpacing: "var(--tracking-caps)",
+              color: "var(--fg-muted)",
+              background: "color-mix(in oklab, var(--bg-a) 45%, transparent)",
+              textTransform: "uppercase",
+              transition: "color var(--duration-fast) var(--ease-out)",
+            }}
+          >
+            Begin
+          </a>
+        </div>
+      </div>
+
+      {/* first-visit hint: the planet can be touched */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute bottom-[22svh] left-1/2 -translate-x-1/2 rounded-full px-4 py-1.5 uppercase"
+        style={{
+          fontSize: "var(--text-caption)",
+          letterSpacing: "var(--tracking-caps)",
+          color: "var(--fg)",
+          background: "color-mix(in oklab, var(--bg-a) 60%, transparent)",
+          boxShadow: "inset 0 0 0 1px color-mix(in oklab, var(--fg) 18%, transparent)",
+          opacity: hintVisible ? 1 : 0,
+          transition: "opacity var(--duration-ambient) var(--ease-gentle)",
+        }}
+      >
+        Drag to spin the planet
       </div>
     </section>
   );
