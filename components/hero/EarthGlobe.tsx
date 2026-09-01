@@ -487,12 +487,12 @@ function BodyAxis({
           depthWrite={false}
         />
       </lineSegments>
-      <mesh position={[0, 1.5, 0]}>
-        <coneGeometry args={[0.055, 0.16, 16]} />
+      <mesh position={[0, 1.48, 0]}>
+        <coneGeometry args={[0.028, 0.09, 16]} />
         <meshBasicMaterial ref={northMat} color="#ff5a4e" transparent opacity={0} />
       </mesh>
-      <mesh position={[0, -1.47, 0]}>
-        <sphereGeometry args={[0.05, 16, 16]} />
+      <mesh position={[0, -1.46, 0]}>
+        <sphereGeometry args={[0.024, 16, 16]} />
         <meshBasicMaterial ref={southMat} color="#e8f0ff" transparent opacity={0} />
       </mesh>
     </group>
