@@ -54,6 +54,12 @@ export const EARTH_FRAGMENT = /* glsl */ `
     float twilight = smoothstep(-0.12, 0.05, cosSun) * (1.0 - smoothstep(0.05, 0.35, cosSun));
     color += rimColor * twilight * 0.12;
 
+    // sun glint on water: broad specular, gated to blue-dominant pixels
+    float oceanish = clamp((day.b - max(day.r, day.g)) * 4.0, 0.0, 1.0);
+    vec3 halfway = normalize(sunDir + viewDir);
+    float spec = pow(clamp(dot(normal, halfway), 0.0, 1.0), 48.0);
+    color += vec3(1.0, 0.97, 0.9) * spec * oceanish * dayness * 0.4;
+
     // faint edge sheen — just enough to lift the limb off the sky
     float fresnel = pow(1.0 - clamp(dot(normal, viewDir), 0.0, 1.0), 3.0);
     float rimLit = 0.35 + 0.65 * smoothstep(-0.3, 0.5, cosSun);

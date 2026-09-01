@@ -25,7 +25,7 @@ function yawForLongitude(lonDeg: number): number {
 
 const DEG = Math.PI / 180;
 const DRIFT_RAD_PER_S = 0.006; // full turn ≈ 17 min — barely perceptible
-const TILT_LIMIT = 1.1; // rad — how far the planet can be tilted by hand
+const TILT_LIMIT = 1.1; // rad — how far a body can be tilted by hand
 const RESUME_DRIFT_AFTER_MS = 2500;
 
 /** Scroll journey, part one: close-up on the limb → the whole planet. */
@@ -47,6 +47,13 @@ const SYSTEM_SCALE_END = 0.3;
 const SYSTEM_CENTER = new THREE.Vector3(0, 0.08, 0);
 const SUN_R = 0.16;
 
+/** Focused-body framing: the body fills a good part of the view. */
+const FOCUS_POINT = new THREE.Vector3(0, 0.02, 0.8);
+const FOCUS_WORLD_R = 0.5;
+
+/** Bodies fade in only late in the zoom — no half-arrived grey scene. */
+const systemReveal = (p2: number) => smooth(clamp((p2 - 0.5) / 0.45, 0, 1));
+
 interface PlanetSpec {
   name: string;
   orbit: number;
@@ -54,22 +61,38 @@ interface PlanetSpec {
   color: string;
   angle: number;
   ring?: boolean;
+  /** banding contrast for the procedural texture */
+  banding: number;
 }
 
 const PLANETS: PlanetSpec[] = [
-  { name: "mercury", orbit: 0.5, r: 0.024, color: "#a59a8f", angle: 5.1 },
-  { name: "venus", orbit: 0.72, r: 0.045, color: "#d9b98a", angle: 3.9 },
-  { name: "mars", orbit: 1.32, r: 0.034, color: "#c96f4a", angle: 0.4 },
-  { name: "jupiter", orbit: 1.9, r: 0.095, color: "#c9a87e", angle: 2.6 },
-  { name: "saturn", orbit: 2.42, r: 0.08, color: "#d8c49a", angle: 4.4, ring: true },
-  { name: "uranus", orbit: 2.88, r: 0.055, color: "#9fd3d8", angle: 1.8 },
-  { name: "neptune", orbit: 3.3, r: 0.052, color: "#6f8fd8", angle: 5.8 },
+  { name: "mercury", orbit: 0.5, r: 0.024, color: "#a59a8f", angle: 5.1, banding: 0.1 },
+  { name: "venus", orbit: 0.72, r: 0.045, color: "#d9b98a", angle: 3.9, banding: 0.14 },
+  { name: "mars", orbit: 1.32, r: 0.034, color: "#c96f4a", angle: 0.4, banding: 0.12 },
+  { name: "jupiter", orbit: 1.9, r: 0.095, color: "#c9a87e", angle: 2.6, banding: 0.42 },
+  { name: "saturn", orbit: 2.42, r: 0.08, color: "#d8c49a", angle: 4.4, ring: true, banding: 0.3 },
+  { name: "uranus", orbit: 2.88, r: 0.055, color: "#9fd3d8", angle: 1.8, banding: 0.12 },
+  { name: "neptune", orbit: 3.3, r: 0.052, color: "#6f8fd8", angle: 5.8, banding: 0.18 },
 ];
+
+const SUN_SPEC: PlanetSpec = {
+  name: "sun",
+  orbit: 0,
+  r: SUN_R,
+  color: "#f5c66a",
+  angle: 0,
+  banding: 0.12,
+};
 
 const orbitPosition = (orbit: number, angle: number) =>
   new THREE.Vector3(Math.cos(angle) * orbit, 0, Math.sin(angle) * orbit);
 
 const EARTH_SYS_POS = orbitPosition(EARTH_ORBIT, EARTH_ANGLE);
+
+function specByName(name: string): PlanetSpec | undefined {
+  if (name === "sun") return SUN_SPEC;
+  return PLANETS.find((p) => p.name === name);
+}
 
 /** Scroll journey progress, written by the hero's scroll handler. */
 export interface Journey {
@@ -90,13 +113,17 @@ interface InteractionState {
   vel: number;
   /** ms timestamp of the last pointer activity */
   lastActiveMs: number;
-  /** graticule/axis visibility target */
+  /** graticule/axis visibility target (Earth handling) */
   reveal: boolean;
+  /** orbit-ring visibility target (system handling) */
+  revealOrbits: boolean;
+  /** pixels moved during the current/last pointer gesture */
+  dragDist: number;
 }
 
 function configureTexture(t: THREE.Texture) {
   t.wrapS = THREE.RepeatWrapping;
-  t.anisotropy = 4;
+  t.anisotropy = 8;
   return t;
 }
 
@@ -115,6 +142,49 @@ function useProgressiveTexture(lowUrl: string, highUrl: string): THREE.Texture {
   return texture;
 }
 
+/** Seeded procedural band texture so planet rotation is visible. */
+function makeBandTexture(spec: PlanetSpec): THREE.CanvasTexture {
+  const w = 256;
+  const h = 128;
+  let seed = 0;
+  for (const ch of spec.name) seed = (seed * 31 + ch.charCodeAt(0)) >>> 0;
+  const rand = () => ((seed = (seed * 1664525 + 1013904223) >>> 0), seed / 4294967296);
+
+  // low-frequency random walk over latitude → band brightness
+  const rows = new Float32Array(h);
+  let v = 0;
+  for (let y = 0; y < h; y++) {
+    v = clamp(v + (rand() - 0.5) * 0.35, -1, 1);
+    rows[y] = v;
+  }
+  // smooth the walk a little
+  for (let pass = 0; pass < 3; pass++) {
+    for (let y = 1; y < h - 1; y++) rows[y] = (rows[y - 1] + rows[y] * 2 + rows[y + 1]) / 4;
+  }
+
+  const base = new THREE.Color(spec.color);
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext("2d")!;
+  const img = ctx.createImageData(w, h);
+  for (let y = 0; y < h; y++) {
+    const band = 1 + rows[y] * spec.banding;
+    for (let x = 0; x < w; x++) {
+      const speckle = 1 + (rand() - 0.5) * spec.banding * 0.35;
+      const i = (y * w + x) * 4;
+      img.data[i] = clamp(base.r * band * speckle, 0, 1) * 255;
+      img.data[i + 1] = clamp(base.g * band * speckle, 0, 1) * 255;
+      img.data[i + 2] = clamp(base.b * band * speckle, 0, 1) * 255;
+      img.data[i + 3] = 255;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = THREE.RepeatWrapping;
+  return tex;
+}
+
 /* ------------------------------------------------------------------ */
 /* Earth                                                               */
 /* ------------------------------------------------------------------ */
@@ -126,11 +196,19 @@ interface EarthSurfaceProps {
   atMs: number;
   spinRef: RefObject<THREE.Group | null>;
   interaction: RefObject<InteractionState>;
+  onEarthClick?: () => void;
 }
 
 const tmpQuat = new THREE.Quaternion();
 
-function EarthSurface({ rimColor, drift, atMs, spinRef, interaction }: EarthSurfaceProps) {
+function EarthSurface({
+  rimColor,
+  drift,
+  atMs,
+  spinRef,
+  interaction,
+  onEarthClick,
+}: EarthSurfaceProps) {
   const dayMap = useProgressiveTexture(
     "/textures/earth-day-1k.webp",
     "/textures/earth-day-4k.webp",
@@ -183,7 +261,12 @@ function EarthSurface({ rimColor, drift, atMs, spinRef, interaction }: EarthSurf
   });
 
   return (
-    <mesh material={surfaceMaterial}>
+    <mesh
+      material={surfaceMaterial}
+      onClick={() => {
+        if (interaction.current.dragDist < 6) onEarthClick?.();
+      }}
+    >
       <sphereGeometry args={[1, 96, 96]} />
     </mesh>
   );
@@ -298,16 +381,35 @@ function Graticule({ interaction }: { interaction: RefObject<InteractionState> }
 
 /* ------------------------------------------------------------------ */
 /* drag: spin (yaw) + tilt (pitch), with inertia                       */
+/* Target resolution: focused body → that body; deep in the system     */
+/* view → the whole system; otherwise → Earth.                         */
 /* ------------------------------------------------------------------ */
 
+interface DragTargets {
+  earthSpin: RefObject<THREE.Group | null>;
+  systemSpin: RefObject<THREE.Group | null>;
+  bodySpins: RefObject<Map<string, THREE.Group>>;
+}
+
 interface DragControlsProps {
-  spinRef: RefObject<THREE.Group | null>;
+  targets: DragTargets;
+  journey: RefObject<Journey>;
+  focusedRef: RefObject<string | null>;
   interaction: RefObject<InteractionState>;
   onInteractionChange?: (active: boolean) => void;
 }
 
-function DragControls({ spinRef, interaction, onInteractionChange }: DragControlsProps) {
+function DragControls({
+  targets,
+  journey,
+  focusedRef,
+  interaction,
+  onInteractionChange,
+}: DragControlsProps) {
   const { gl } = useThree();
+  // which group the current inertia applies to
+  const activeGroup = useRef<THREE.Group | null>(null);
+  const activeIsSystem = useRef(false);
 
   useEffect(() => {
     const el = gl.domElement;
@@ -320,6 +422,17 @@ function DragControls({ spinRef, interaction, onInteractionChange }: DragControl
     let lastT = 0;
     let endTimer: ReturnType<typeof setTimeout> | undefined;
 
+    const resolveTarget = (): { group: THREE.Group | null; isSystem: boolean } => {
+      const focused = focusedRef.current;
+      if (focused && focused !== "earth") {
+        return { group: targets.bodySpins.current.get(focused) ?? null, isSystem: false };
+      }
+      if (journey.current.p2 > 0.6) {
+        return { group: targets.systemSpin.current, isSystem: true };
+      }
+      return { group: targets.earthSpin.current, isSystem: false };
+    };
+
     const onDown = (e: PointerEvent) => {
       if (e.button !== 0 && e.pointerType === "mouse") return;
       try {
@@ -327,10 +440,15 @@ function DragControls({ spinRef, interaction, onInteractionChange }: DragControl
       } catch {
         /* capture is a nicety; dragging works without it */
       }
+      const { group, isSystem } = resolveTarget();
+      activeGroup.current = group;
+      activeIsSystem.current = isSystem;
       const it = interaction.current;
       it.dragging = true;
       it.vel = 0;
-      it.reveal = true;
+      it.dragDist = 0;
+      it.reveal = !isSystem && !focusedRef.current;
+      it.revealOrbits = isSystem;
       it.lastActiveMs = performance.now();
       lastX = e.clientX;
       lastY = e.clientY;
@@ -343,14 +461,16 @@ function DragControls({ spinRef, interaction, onInteractionChange }: DragControl
     const onMove = (e: PointerEvent) => {
       const it = interaction.current;
       if (!it.dragging) return;
-      const group = spinRef.current;
+      const group = activeGroup.current;
       if (!group) return;
       const now = performance.now();
       const dx = e.clientX - lastX;
       const dy = e.clientY - lastY;
+      it.dragDist += Math.abs(dx) + Math.abs(dy);
       const dYaw = dx * 0.005;
       group.rotation.y += dYaw;
-      group.rotation.x = clamp(group.rotation.x + dy * 0.004, -TILT_LIMIT, TILT_LIMIT);
+      const tiltMax = activeIsSystem.current ? 0.35 : TILT_LIMIT;
+      group.rotation.x = clamp(group.rotation.x + dy * 0.004, -tiltMax, tiltMax);
       const dt = Math.max(8, now - lastT) / 1000;
       it.vel = 0.75 * it.vel + 0.25 * (dYaw / dt);
       it.lastActiveMs = now;
@@ -368,6 +488,7 @@ function DragControls({ spinRef, interaction, onInteractionChange }: DragControl
       clearTimeout(endTimer);
       endTimer = setTimeout(() => {
         interaction.current.reveal = false;
+        interaction.current.revealOrbits = false;
         onInteractionChange?.(false);
       }, RESUME_DRIFT_AFTER_MS);
     };
@@ -383,22 +504,27 @@ function DragControls({ spinRef, interaction, onInteractionChange }: DragControl
       el.removeEventListener("pointerup", onUp);
       el.removeEventListener("pointercancel", onUp);
     };
-  }, [gl, spinRef, interaction, onInteractionChange]);
+  }, [gl, targets, journey, focusedRef, interaction, onInteractionChange]);
 
-  // yaw inertia after release
+  // yaw inertia after release; the system's pitch eases back level
   useFrame((_, delta) => {
     const it = interaction.current;
-    const group = spinRef.current;
-    if (!group || it.dragging || Math.abs(it.vel) < 0.001) return;
-    group.rotation.y += it.vel * delta;
-    it.vel *= Math.exp(-2.2 * delta);
+    const group = activeGroup.current;
+    if (!group) return;
+    if (!it.dragging && Math.abs(it.vel) > 0.001) {
+      group.rotation.y += it.vel * delta;
+      it.vel *= Math.exp(-2.2 * delta);
+    }
+    if (!it.dragging && activeIsSystem.current) {
+      group.rotation.x *= Math.exp(-1.5 * delta);
+    }
   });
 
   return null;
 }
 
 /* ------------------------------------------------------------------ */
-/* the sun cresting behind Earth (hero phase only)                     */
+/* glows                                                               */
 /* ------------------------------------------------------------------ */
 
 function makeGlowTexture(stops: Array<[number, string]>): THREE.CanvasTexture {
@@ -441,26 +567,40 @@ function EarthriseGlow({ journey }: { journey: RefObject<Journey> }) {
 }
 
 /* ------------------------------------------------------------------ */
-/* solar system bodies (zoom-out phase)                                */
+/* solar system bodies                                                 */
 /* ------------------------------------------------------------------ */
 
-function SunCore({ journey }: { journey: RefObject<Journey> }) {
-  const texture = useMemo(() => makeGlowTexture(SUN_GLOW_STOPS), []);
+interface BodyCommonProps {
+  journey: RefObject<Journey>;
+  interaction: RefObject<InteractionState>;
+  registerSpin: (name: string, group: THREE.Group | null) => void;
+  onBodyClick: (name: string) => void;
+}
+
+function SunCore({ journey, interaction, registerSpin, onBodyClick }: BodyCommonProps) {
+  const glowTexture = useMemo(() => makeGlowTexture(SUN_GLOW_STOPS), []);
+  const surface = useMemo(() => makeBandTexture(SUN_SPEC), []);
   const glowMat = useRef<THREE.SpriteMaterial>(null);
   const coreMat = useRef<THREE.MeshBasicMaterial>(null);
-  const p2 = () => smooth(clamp(journey.current.p2, 0, 1));
-  useOpacityDriver(glowMat, () => 0.9 * p2());
-  useOpacityDriver(coreMat, () => p2());
+  const p2 = () => systemReveal(journey.current.p2);
+  useOpacityDriver(glowMat, () => 0.5 * p2());
+  useOpacityDriver(coreMat, p2);
   return (
     <group>
-      <mesh>
-        <sphereGeometry args={[SUN_R, 48, 48]} />
-        <meshBasicMaterial ref={coreMat} color="#fff4dc" transparent opacity={0} />
-      </mesh>
-      <sprite scale={[SUN_R * 7, SUN_R * 7, 1]}>
+      <group ref={(g) => registerSpin("sun", g)}>
+        <mesh
+          onClick={() => {
+            if (interaction.current.dragDist < 6) onBodyClick("sun");
+          }}
+        >
+          <sphereGeometry args={[SUN_R, 48, 48]} />
+          <meshBasicMaterial ref={coreMat} map={surface} color="#ffe9b8" transparent opacity={0} />
+        </mesh>
+      </group>
+      <sprite scale={[SUN_R * 4.5, SUN_R * 4.5, 1]}>
         <spriteMaterial
           ref={glowMat}
-          map={texture}
+          map={glowTexture}
           transparent
           depthWrite={false}
           blending={THREE.AdditiveBlending}
@@ -471,42 +611,54 @@ function SunCore({ journey }: { journey: RefObject<Journey> }) {
   );
 }
 
-function Planet({ spec, journey }: { spec: PlanetSpec; journey: RefObject<Journey> }) {
+function Planet({
+  spec,
+  journey,
+  interaction,
+  registerSpin,
+  onBodyClick,
+}: BodyCommonProps & { spec: PlanetSpec }) {
   const mat = useRef<THREE.MeshStandardMaterial>(null);
   const ringMat = useRef<THREE.MeshBasicMaterial>(null);
-  const meshRef = useRef<THREE.Group>(null);
-  const p2 = () => smooth(clamp(journey.current.p2, 0, 1));
+  const surface = useMemo(() => makeBandTexture(spec), [spec]);
+  const p2 = () => systemReveal(journey.current.p2);
   useOpacityDriver(mat, p2);
   useOpacityDriver(ringMat, () => 0.55 * p2());
-  useFrame((_, delta) => {
-    if (meshRef.current) meshRef.current.rotation.y += delta * 0.1;
-  });
   const pos = useMemo(() => orbitPosition(spec.orbit, spec.angle), [spec]);
   return (
-    <group position={pos} ref={meshRef}>
-      <mesh>
-        <sphereGeometry args={[spec.r, 40, 40]} />
-        <meshStandardMaterial
-          ref={mat}
-          color={spec.color}
-          roughness={0.9}
-          transparent
-          opacity={0}
-        />
-      </mesh>
-      {spec.ring ? (
-        <mesh rotation={[1.25, 0, 0.3]}>
-          <ringGeometry args={[spec.r * 1.35, spec.r * 2.1, 64]} />
-          <meshBasicMaterial
-            ref={ringMat}
-            color="#d8c9a3"
+    <group position={pos}>
+      <group ref={(g) => registerSpin(spec.name, g)}>
+        <mesh
+          onClick={() => {
+            if (interaction.current.dragDist < 6) onBodyClick(spec.name);
+          }}
+        >
+          <sphereGeometry args={[spec.r, 48, 48]} />
+          <meshStandardMaterial
+            ref={mat}
+            map={surface}
+            emissiveMap={surface}
+            emissive="#ffffff"
+            emissiveIntensity={0.35}
+            roughness={0.9}
             transparent
             opacity={0}
-            side={THREE.DoubleSide}
-            depthWrite={false}
           />
         </mesh>
-      ) : null}
+        {spec.ring ? (
+          <mesh rotation={[1.25, 0, 0.3]}>
+            <ringGeometry args={[spec.r * 1.35, spec.r * 2.1, 64]} />
+            <meshBasicMaterial
+              ref={ringMat}
+              color="#d8c9a3"
+              transparent
+              opacity={0}
+              side={THREE.DoubleSide}
+              depthWrite={false}
+            />
+          </mesh>
+        ) : null}
+      </group>
     </group>
   );
 }
@@ -528,7 +680,14 @@ function orbitRingPoints(radius: number, segments = 160): number[] {
   return pts;
 }
 
-function OrbitRings({ journey }: { journey: RefObject<Journey> }) {
+/** Orbit rings appear only while the visitor is handling the system. */
+function OrbitRings({
+  journey,
+  interaction,
+}: {
+  journey: RefObject<Journey>;
+  interaction: RefObject<InteractionState>;
+}) {
   const geom = useMemo(() => {
     const pts: number[] = [];
     for (const orbit of [...PLANETS.map((p) => p.orbit), EARTH_ORBIT]) {
@@ -537,7 +696,9 @@ function OrbitRings({ journey }: { journey: RefObject<Journey> }) {
     return toLineGeometry(pts);
   }, []);
   const mat = useRef<THREE.LineBasicMaterial>(null);
-  useOpacityDriver(mat, () => 0.18 * smooth(clamp(journey.current.p2, 0, 1)));
+  useOpacityDriver(mat, () =>
+    interaction.current.revealOrbits ? 0.3 * systemReveal(journey.current.p2) : 0,
+  );
   return (
     <lineSegments geometry={geom}>
       <lineBasicMaterial ref={mat} color="#9db4d8" transparent opacity={0} depthWrite={false} />
@@ -546,19 +707,24 @@ function OrbitRings({ journey }: { journey: RefObject<Journey> }) {
 }
 
 /* ------------------------------------------------------------------ */
-/* the rig: one transform carries the whole journey                    */
+/* the rig: one transform carries the whole journey + focus            */
 /* ------------------------------------------------------------------ */
 
-const tmpEarthWorld = new THREE.Vector3();
+const tmpBodyWorld = new THREE.Vector3();
 const tmpPos = new THREE.Vector3();
 const tmpTiltQuat = new THREE.Quaternion();
+const tmpSpinQuat = new THREE.Quaternion();
 const X_AXIS = new THREE.Vector3(1, 0, 0);
 
 function SystemRig({
   journey,
+  focusedRef,
+  systemSpin,
   children,
 }: {
   journey: RefObject<Journey>;
+  focusedRef: RefObject<string | null>;
+  systemSpin: RefObject<THREE.Group | null>;
   children: React.ReactNode;
 }) {
   const ref = useRef<THREE.Group>(null);
@@ -568,28 +734,51 @@ function SystemRig({
     if (!group) return;
     const p1 = smooth(clamp(journey.current.p1, 0, 1));
     const p2 = smooth(clamp(journey.current.p2, 0, 1));
+    const focused = focusedRef.current;
+    const focusSpec = focused && focused !== "earth" ? specByName(focused) : undefined;
 
-    // Phase 1: Earth framing (limb close-up → whole planet).
-    const viewY = lerp(VIEW_START.y, VIEW_END.y, p1);
-    const viewScale = lerp(VIEW_START.scale, VIEW_END.scale, p1);
-    const earthPhaseScale = viewScale / EARTH_SYS_R;
+    let scaleTarget: number;
+    let tilt: number;
 
-    // Phase 2: zoom out — scale interpolates in log space (a zoom is
-    // multiplicative), the system plane tilts into a 3/4 view.
-    const scale = Math.exp(lerp(Math.log(earthPhaseScale), Math.log(SYSTEM_SCALE_END), p2));
-    const tilt = SYSTEM_TILT_END * p2;
-    tmpTiltQuat.setFromAxisAngle(X_AXIS, tilt);
+    if (focusSpec) {
+      scaleTarget = FOCUS_WORLD_R / focusSpec.r;
+      tilt = SYSTEM_TILT_END;
+      tmpTiltQuat.setFromAxisAngle(X_AXIS, tilt);
+      // body position in system space, spun by the system's own yaw
+      tmpBodyWorld.copy(orbitPosition(focusSpec.orbit, focusSpec.angle));
+      if (systemSpin.current) {
+        tmpSpinQuat.setFromEuler(systemSpin.current.rotation);
+        tmpBodyWorld.applyQuaternion(tmpSpinQuat);
+      }
+      tmpBodyWorld.applyQuaternion(tmpTiltQuat).multiplyScalar(scaleTarget);
+      tmpPos.copy(FOCUS_POINT).sub(tmpBodyWorld);
+    } else {
+      // Phase 1: Earth framing (limb close-up → whole planet).
+      const viewY = lerp(VIEW_START.y, VIEW_END.y, p1);
+      const viewScale = lerp(VIEW_START.scale, VIEW_END.scale, p1);
+      const earthPhaseScale = viewScale / EARTH_SYS_R;
 
-    // Position: during phase 1 the rig is placed so Earth sits at the
-    // hero framing spot; during phase 2 it eases to the system center.
-    tmpEarthWorld.copy(EARTH_SYS_POS).applyQuaternion(tmpTiltQuat).multiplyScalar(scale);
-    tmpPos.set(0, viewY, 0).sub(tmpEarthWorld); // earth-anchored rig position
-    tmpPos.lerp(SYSTEM_CENTER, p2);
+      // Phase 2: zoom out — scale interpolates in log space (a zoom is
+      // multiplicative), the system plane tilts into a 3/4 view.
+      scaleTarget = Math.exp(lerp(Math.log(earthPhaseScale), Math.log(SYSTEM_SCALE_END), p2));
+      tilt = SYSTEM_TILT_END * p2;
+      tmpTiltQuat.setFromAxisAngle(X_AXIS, tilt);
 
-    // critically-damped-ish follow so jumpy scrolls stay smooth
+      tmpBodyWorld.copy(EARTH_SYS_POS);
+      if (systemSpin.current) {
+        tmpSpinQuat.setFromEuler(systemSpin.current.rotation);
+        tmpBodyWorld.applyQuaternion(tmpSpinQuat);
+      }
+      tmpBodyWorld.applyQuaternion(tmpTiltQuat).multiplyScalar(scaleTarget);
+      tmpPos.set(0, viewY, 0).sub(tmpBodyWorld); // earth-anchored rig position
+      tmpPos.lerp(SYSTEM_CENTER, p2);
+    }
+
+    // critically-damped-ish follow; scale eases in log space
     const k = 1 - Math.exp(-7 * delta);
     group.position.lerp(tmpPos, k);
-    group.scale.setScalar(group.scale.x + (scale - group.scale.x) * k);
+    const logNow = Math.log(group.scale.x);
+    group.scale.setScalar(Math.exp(logNow + (Math.log(scaleTarget) - logNow) * k));
     group.quaternion.slerp(tmpTiltQuat, k);
   });
 
@@ -634,8 +823,7 @@ function Stars({ journey }: { journey: RefObject<Journey> }) {
 
   useFrame(() => {
     if (materialRef.current) {
-      const j = journey.current;
-      materialRef.current.opacity = smooth(clamp(j.p1, 0, 1)) * 0.9;
+      materialRef.current.opacity = smooth(clamp(journey.current.p1, 0, 1)) * 0.9;
     }
   });
 
@@ -662,7 +850,11 @@ export interface EarthGlobeProps {
   atMs: number;
   /** scroll journey progress, written by the hero's scroll handler */
   journeyRef: RefObject<Journey>;
-  /** fires when the visitor picks up / releases the planet */
+  /** focused body name (null = scroll-driven framing) */
+  focused: string | null;
+  /** clicks on bodies / empty space request focus changes */
+  onFocusRequest: (name: string | null) => void;
+  /** fires when the visitor picks up / releases a body */
   onInteractionChange?: (active: boolean) => void;
   /** disable the idle drift (reduced motion) */
   drift?: boolean;
@@ -672,21 +864,53 @@ export default function EarthGlobe({
   rimColor,
   atMs,
   journeyRef,
+  focused,
+  onFocusRequest,
   onInteractionChange,
   drift = true,
 }: EarthGlobeProps) {
-  const spinRef = useRef<THREE.Group>(null);
+  const earthSpinRef = useRef<THREE.Group>(null);
+  const systemSpinRef = useRef<THREE.Group>(null);
+  const bodySpinsRef = useRef(new Map<string, THREE.Group>());
+  const focusedRef = useRef<string | null>(focused);
+  useEffect(() => {
+    focusedRef.current = focused;
+  }, [focused]);
+
   const interaction = useRef<InteractionState>({
     dragging: false,
     vel: 0,
     lastActiveMs: 0,
     reveal: false,
+    revealOrbits: false,
+    dragDist: 0,
   });
+
+  const targets = useMemo<DragTargets>(
+    () => ({ earthSpin: earthSpinRef, systemSpin: systemSpinRef, bodySpins: bodySpinsRef }),
+    [],
+  );
+
+  const registerSpin = useMemo(
+    () => (name: string, group: THREE.Group | null) => {
+      if (group) bodySpinsRef.current.set(name, group);
+      else bodySpinsRef.current.delete(name);
+    },
+    [],
+  );
 
   // Start with the visitor's approximate longitude facing the camera.
   const initialYaw = useMemo(
     () => yawForLongitude(longitudeFromUtcOffset(new Date().getTimezoneOffset())),
     [],
+  );
+
+  const handleBodyClick = useMemo(
+    () => (name: string) => {
+      if (journeyRef.current.p2 < 0.5) return; // bodies are clickable in the system view
+      onFocusRequest(name);
+    },
+    [journeyRef, onFocusRequest],
   );
 
   return (
@@ -696,34 +920,56 @@ export default function EarthGlobe({
       camera={{ position: [0, 0.35, 3.1], fov: 42 }}
       style={{ position: "absolute", inset: 0 }}
       aria-hidden
+      onPointerMissed={() => {
+        if (focusedRef.current && interaction.current.dragDist < 6) onFocusRequest(null);
+      }}
     >
       <Suspense fallback={null}>
         <Stars journey={journeyRef} />
-        <ambientLight intensity={0.25} />
-        <SystemRig journey={journeyRef}>
-          <pointLight position={[0, 0, 0]} intensity={3} decay={0.4} />
-          <SunCore journey={journeyRef} />
-          <OrbitRings journey={journeyRef} />
-          {PLANETS.map((spec) => (
-            <Planet key={spec.name} spec={spec} journey={journeyRef} />
-          ))}
-          {/* Earth, in its orbital slot — interactive throughout */}
-          <group position={EARTH_SYS_POS} scale={EARTH_SYS_R}>
-            <group ref={spinRef} rotation={[0, initialYaw, 0]}>
-              <EarthSurface
-                rimColor={rimColor}
-                drift={drift}
-                atMs={atMs}
-                spinRef={spinRef}
+        <ambientLight intensity={0.35} />
+        <SystemRig journey={journeyRef} focusedRef={focusedRef} systemSpin={systemSpinRef}>
+          <group ref={systemSpinRef}>
+            <pointLight position={[0, 0, 0]} intensity={3} decay={0.4} />
+            <SunCore
+              journey={journeyRef}
+              interaction={interaction}
+              registerSpin={registerSpin}
+              onBodyClick={handleBodyClick}
+            />
+            <OrbitRings journey={journeyRef} interaction={interaction} />
+            {PLANETS.map((spec) => (
+              <Planet
+                key={spec.name}
+                spec={spec}
+                journey={journeyRef}
                 interaction={interaction}
+                registerSpin={registerSpin}
+                onBodyClick={handleBodyClick}
               />
-              <Graticule interaction={interaction} />
+            ))}
+            {/* Earth, in its orbital slot — interactive throughout */}
+            <group position={EARTH_SYS_POS} scale={EARTH_SYS_R}>
+              <group ref={earthSpinRef} rotation={[0, initialYaw, 0]}>
+                <EarthSurface
+                  rimColor={rimColor}
+                  drift={drift}
+                  atMs={atMs}
+                  spinRef={earthSpinRef}
+                  interaction={interaction}
+                  onEarthClick={() => {
+                    if (journeyRef.current.p2 > 0.5) onFocusRequest("earth");
+                  }}
+                />
+                <Graticule interaction={interaction} />
+              </group>
+              <EarthriseGlow journey={journeyRef} />
             </group>
-            <EarthriseGlow journey={journeyRef} />
           </group>
         </SystemRig>
         <DragControls
-          spinRef={spinRef}
+          targets={targets}
+          journey={journeyRef}
+          focusedRef={focusedRef}
           interaction={interaction}
           onInteractionChange={onInteractionChange}
         />

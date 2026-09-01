@@ -17,6 +17,10 @@ export const P1_VH = 1.6;
 export const HOLD_VH = 1.0;
 export const P2_VH = 2.6;
 
+/** Scroll speed (in viewport-heights/second) above which forced
+    transitions jump instantly instead of animating. */
+const FAST_SCROLL_VHPS = 2.5;
+
 function solarClockLabel(phase: number): string {
   const totalMinutes = Math.round(phase * 1440) % 1440;
   const h = Math.floor(totalMinutes / 60);
@@ -54,6 +58,8 @@ function devTimeOffsetMs(): number {
 
 const TOUCHED_KEY = "earth-explorer:touched";
 
+const easeInOut = (t: number) => (t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2);
+
 export function Hero() {
   // Server render carries phase 0 (night, matching the CSS defaults);
   // the real solar phase arrives right after hydration.
@@ -61,13 +67,43 @@ export function Hero() {
   const [mode, setMode] = useState<HeroMode>("loading");
   const [timezone, setTimezone] = useState("");
   const [clockMs, setClockMs] = useState<number | null>(null);
-  // "interaction mode": the visitor has picked up the planet — every
+  // "interaction mode": the visitor has picked up a body — every
   // distraction fades out until they let go.
   const [interacting, setInteracting] = useState(false);
   const [hintVisible, setHintVisible] = useState(false);
+  // focused celestial body (system view): rig zooms in on it
+  const [focused, setFocused] = useState<string | null>(null);
+  const focusedRef = useRef<string | null>(null);
+  const focusStartY = useRef(0);
   const copyRef = useRef<HTMLDivElement>(null);
   const spaceRef = useRef<HTMLDivElement>(null);
   const journeyRef = useRef({ p1: 0, p2: 0 });
+
+  /* ---- programmatic scrolling (pull-ins and snap transitions) ---- */
+  const scrollAnim = useRef<number | null>(null);
+
+  const cancelScrollAnim = useCallback(() => {
+    if (scrollAnim.current !== null) {
+      cancelAnimationFrame(scrollAnim.current);
+      scrollAnim.current = null;
+    }
+  }, []);
+
+  const animateScrollTo = useCallback(
+    (targetY: number, duration = 850) => {
+      cancelScrollAnim();
+      const startY = window.scrollY;
+      if (Math.abs(targetY - startY) < 2) return;
+      const startT = performance.now();
+      const step = () => {
+        const t = Math.min(1, (performance.now() - startT) / duration);
+        window.scrollTo(0, startY + (targetY - startY) * easeInOut(t));
+        scrollAnim.current = t < 1 ? requestAnimationFrame(step) : null;
+      };
+      scrollAnim.current = requestAnimationFrame(step);
+    },
+    [cancelScrollAnim],
+  );
 
   // First-visit hint, until the planet has been touched once.
   useEffect(() => {
@@ -85,17 +121,42 @@ export function Hero() {
 
   // Stable identity: a fresh closure would re-run the globe's pointer
   // effect on every render, resetting a drag in progress.
-  const onInteractionChange = useCallback((active: boolean) => {
-    setInteracting(active);
-    if (active) {
+  const onInteractionChange = useCallback(
+    (active: boolean) => {
+      setInteracting(active);
+      if (!active) return;
       setHintVisible(false);
       try {
         localStorage.setItem(TOUCHED_KEY, "1");
       } catch {
         /* fine — the hint will just show again next visit */
       }
-    }
-  }, []);
+      // Touching Earth outside its full view pulls the page to it.
+      const j = journeyRef.current;
+      if (focusedRef.current === null && j.p2 === 0) {
+        const vh = window.innerHeight;
+        const target = vh * P1_VH;
+        if (Math.abs(window.scrollY - target) > vh * 0.2) animateScrollTo(target);
+      }
+    },
+    [animateScrollTo],
+  );
+
+  const onFocusRequest = useCallback(
+    (name: string | null) => {
+      if (name === "earth") {
+        // Earth's detailed view lives at its scroll anchor — go there.
+        setFocused(null);
+        focusedRef.current = null;
+        animateScrollTo(window.innerHeight * P1_VH, 1100);
+        return;
+      }
+      setFocused(name);
+      focusedRef.current = name;
+      focusStartY.current = window.scrollY;
+    },
+    [animateScrollTo],
+  );
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- client-only init after hydration
@@ -112,15 +173,57 @@ export function Hero() {
     return () => clearInterval(id);
   }, []);
 
-  // One scroll handler drives the whole journey: 3D rig progress,
-  // the deep-space fade, and the hero copy fading out.
+  // One scroll handler drives the whole journey: 3D rig progress, the
+  // deep-space fade, copy fade, focus release, and — via a scroll-end
+  // debounce — the snap that forbids resting inside a transition.
   useEffect(() => {
     let raf = 0;
+    let lastY = window.scrollY;
+    let lastT = performance.now();
+    let peakVel = 0; // vh/s, decays
+    let snapTimer: ReturnType<typeof setTimeout> | undefined;
+
+    const snapIfBetweenZones = () => {
+      if (focusedRef.current !== null || scrollAnim.current !== null) return;
+      const vh = window.innerHeight;
+      const y = window.scrollY;
+      const earthAnchor = vh * P1_VH;
+      const holdEnd = vh * (P1_VH + HOLD_VH);
+      const systemAnchor = vh * (P1_VH + HOLD_VH + P2_VH);
+      const margin = vh * 0.12;
+      let target: number | null = null;
+      if (y > margin && y < earthAnchor - margin) {
+        target = y > earthAnchor / 2 ? earthAnchor : 0;
+      } else if (y > holdEnd + margin && y < systemAnchor - margin) {
+        target = y > (holdEnd + systemAnchor) / 2 ? systemAnchor : holdEnd;
+      }
+      if (target === null) return;
+      // fast fling → give immediate feedback, no forced animation
+      if (peakVel > FAST_SCROLL_VHPS) window.scrollTo(0, target);
+      else animateScrollTo(target, 750);
+    };
+
     const onScroll = () => {
+      const now = performance.now();
+      const y = window.scrollY;
+      const vh = window.innerHeight;
+      const dt = Math.max(1, now - lastT) / 1000;
+      const vel = Math.abs(y - lastY) / vh / dt;
+      peakVel = Math.max(vel, peakVel * Math.exp(-3 * dt));
+      lastY = y;
+      lastT = now;
+
+      // scrolling away releases a focused body
+      if (focusedRef.current !== null && Math.abs(y - focusStartY.current) > vh * 0.15) {
+        focusedRef.current = null;
+        setFocused(null);
+      }
+
+      clearTimeout(snapTimer);
+      snapTimer = setTimeout(snapIfBetweenZones, 140);
+
       cancelAnimationFrame(raf);
       raf = requestAnimationFrame(() => {
-        const vh = window.innerHeight;
-        const y = window.scrollY;
         const p1 = Math.min(1, Math.max(0, y / (vh * P1_VH)));
         const p2 = Math.min(1, Math.max(0, (y - vh * (P1_VH + HOLD_VH)) / (vh * P2_VH)));
         journeyRef.current.p1 = p1;
@@ -129,19 +232,28 @@ export function Hero() {
           spaceRef.current.style.opacity = Math.min(1, p1 * 1.25).toFixed(3);
         }
         if (copyRef.current) {
-          copyRef.current.style.opacity = Math.max(0, 1 - window.scrollY / (vh * 0.4)).toFixed(3);
+          copyRef.current.style.opacity = Math.max(0, 1 - y / (vh * 0.4)).toFixed(3);
         }
       });
     };
+
+    // a manual wheel/touch interrupts any programmatic scroll
+    const onManualScroll = () => cancelScrollAnim();
+
     onScroll();
     window.addEventListener("scroll", onScroll, { passive: true });
     window.addEventListener("resize", onScroll);
+    window.addEventListener("wheel", onManualScroll, { passive: true });
+    window.addEventListener("touchmove", onManualScroll, { passive: true });
     return () => {
       cancelAnimationFrame(raf);
+      clearTimeout(snapTimer);
       window.removeEventListener("scroll", onScroll);
       window.removeEventListener("resize", onScroll);
+      window.removeEventListener("wheel", onManualScroll);
+      window.removeEventListener("touchmove", onManualScroll);
     };
-  }, []);
+  }, [animateScrollTo, cancelScrollAnim]);
 
   const palette = useMemo(() => paletteAtPhase(phase ?? 0), [phase]);
   const vars = useMemo(() => paletteToCssVars(palette), [palette]);
@@ -170,6 +282,8 @@ export function Hero() {
           rimColor={rimRgb}
           atMs={clockMs}
           journeyRef={journeyRef}
+          focused={focused}
+          onFocusRequest={onFocusRequest}
           onInteractionChange={onInteractionChange}
         />
       ) : null}
@@ -239,6 +353,23 @@ export function Hero() {
             Begin
           </a>
         </div>
+      </div>
+
+      {/* focused body caption */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute bottom-[var(--space-7)] left-1/2 -translate-x-1/2 text-center uppercase"
+        style={{
+          fontSize: "var(--text-caption)",
+          letterSpacing: "var(--tracking-caps)",
+          color: "var(--fg-muted)",
+          opacity: focused ? 1 : 0,
+          transition: "opacity var(--duration-slow) var(--ease-gentle)",
+        }}
+      >
+        <span style={{ color: "var(--fg)" }}>{focused ?? " "}</span>
+        <span className="mx-2">·</span>
+        drag to spin · click away to release
       </div>
 
       {/* first-visit hint: the planet can be touched */}
