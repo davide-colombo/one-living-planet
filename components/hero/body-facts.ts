@@ -17,7 +17,7 @@ export const BODY_FACTS: Record<string, BodyFacts> = {
     rows: [
       ["Distance from Earth", "150 million km"],
       ["Surface temperature", "5,500 °C"],
-      ["Gravity", "28 g"],
+      ["Gravity", "270 m/s²"],
       ["Mass", "330,000 × Earth"],
       ["Share of the system's mass", "99.9%"],
     ],
@@ -29,7 +29,7 @@ export const BODY_FACTS: Record<string, BodyFacts> = {
     rows: [
       ["Distance from the Sun", "58 million km"],
       ["Temperature", "-170 to 430 °C"],
-      ["Gravity", "0.4 g"],
+      ["Gravity", "3.7 m/s²"],
       ["Mass", "6% of Earth"],
       ["A year", "88 days"],
       ["Moons", "0"],
@@ -42,7 +42,7 @@ export const BODY_FACTS: Record<string, BodyFacts> = {
     rows: [
       ["Distance from the Sun", "108 million km"],
       ["Average temperature", "460 °C"],
-      ["Gravity", "0.9 g"],
+      ["Gravity", "8.9 m/s²"],
       ["Mass", "80% of Earth"],
       ["A day", "243 Earth days"],
       ["Moons", "0"],
@@ -55,7 +55,7 @@ export const BODY_FACTS: Record<string, BodyFacts> = {
     rows: [
       ["Distance from the Sun", "150 million km"],
       ["Average temperature", "15 °C"],
-      ["Gravity", "1 g"],
+      ["Gravity", "9.8 m/s²"],
       ["A day", "24 hours"],
       ["A year", "365 days"],
       ["Moons", "1"],
@@ -68,7 +68,7 @@ export const BODY_FACTS: Record<string, BodyFacts> = {
     rows: [
       ["Distance from the Sun", "228 million km"],
       ["Average temperature", "-63 °C"],
-      ["Gravity", "0.4 g"],
+      ["Gravity", "3.7 m/s²"],
       ["Mass", "11% of Earth"],
       ["A day", "24.6 hours"],
       ["Moons", "2"],
@@ -81,7 +81,7 @@ export const BODY_FACTS: Record<string, BodyFacts> = {
     rows: [
       ["Distance from the Sun", "778 million km"],
       ["Cloud-top temperature", "-110 °C"],
-      ["Gravity", "2.5 g"],
+      ["Gravity", "25 m/s²"],
       ["Mass", "320 × Earth"],
       ["A day", "10 hours"],
       ["Moons", "95"],
@@ -94,7 +94,7 @@ export const BODY_FACTS: Record<string, BodyFacts> = {
     rows: [
       ["Distance from the Sun", "1.4 billion km"],
       ["Cloud-top temperature", "-140 °C"],
-      ["Gravity", "1.1 g"],
+      ["Gravity", "10 m/s²"],
       ["Mass", "95 × Earth"],
       ["A day", "11 hours"],
       ["Moons", "146"],
@@ -107,7 +107,7 @@ export const BODY_FACTS: Record<string, BodyFacts> = {
     rows: [
       ["Distance from the Sun", "2.9 billion km"],
       ["Average temperature", "-200 °C"],
-      ["Gravity", "0.9 g"],
+      ["Gravity", "8.9 m/s²"],
       ["Mass", "15 × Earth"],
       ["A year", "84 Earth years"],
       ["Moons", "28"],
@@ -120,7 +120,7 @@ export const BODY_FACTS: Record<string, BodyFacts> = {
     rows: [
       ["Distance from the Sun", "4.5 billion km"],
       ["Average temperature", "-200 °C"],
-      ["Gravity", "1.1 g"],
+      ["Gravity", "11 m/s²"],
       ["Mass", "17 × Earth"],
       ["A year", "165 Earth years"],
       ["Moons", "16"],
