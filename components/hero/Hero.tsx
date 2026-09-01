@@ -17,8 +17,8 @@ export const P1_VH = 1.6;
 export const HOLD_VH = 1.0;
 export const P2_VH = 2.6;
 
-/** Scroll speed (in viewport-heights/second) above which forced
-    transitions jump instantly instead of animating. */
+/** Scroll speed (in viewport-heights/second) treated as a fling:
+    the snap correction then plays faster to stay out of the way. */
 const FAST_SCROLL_VHPS = 2.5;
 
 function solarClockLabel(phase: number): string {
@@ -172,6 +172,7 @@ export function Hero() {
     let lastY = window.scrollY;
     let lastT = performance.now();
     let peakVel = 0; // vh/s, decays
+    let lastDir = 1; // +1 scrolling down, -1 scrolling up
     let snapTimer: ReturnType<typeof setTimeout> | undefined;
 
     const snapIfBetweenZones = () => {
@@ -181,17 +182,20 @@ export function Hero() {
       const earthAnchor = vh * P1_VH;
       const holdEnd = vh * (P1_VH + HOLD_VH);
       const systemAnchor = vh * (P1_VH + HOLD_VH + P2_VH);
-      const margin = vh * 0.12;
+      const margin = vh * 0.1;
+      // The snap continues in the direction the visitor was going.
+      // Stopping partway never rolls them back where they came from.
       let target: number | null = null;
       if (y > margin && y < earthAnchor - margin) {
-        target = y > earthAnchor / 2 ? earthAnchor : 0;
+        target = lastDir >= 0 ? earthAnchor : 0;
       } else if (y > holdEnd + margin && y < systemAnchor - margin) {
-        target = y > (holdEnd + systemAnchor) / 2 ? systemAnchor : holdEnd;
+        target = lastDir >= 0 ? systemAnchor : holdEnd;
       }
       if (target === null) return;
-      // fast fling → give immediate feedback, no forced animation
-      if (peakVel > FAST_SCROLL_VHPS) window.scrollTo(0, target);
-      else animateScrollTo(target, 750);
+      // quick after a fling, unhurried after a gentle stop; never a jump
+      const distance = Math.abs(target - y) / vh;
+      const base = peakVel > FAST_SCROLL_VHPS ? 220 : 380;
+      animateScrollTo(target, Math.min(700, base + distance * 180));
     };
 
     const onScroll = () => {
@@ -201,6 +205,7 @@ export function Hero() {
       const dt = Math.max(1, now - lastT) / 1000;
       const vel = Math.abs(y - lastY) / vh / dt;
       peakVel = Math.max(vel, peakVel * Math.exp(-3 * dt));
+      if (y !== lastY) lastDir = y > lastY ? 1 : -1;
       lastY = y;
       lastT = now;
 
