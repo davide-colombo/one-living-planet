@@ -450,6 +450,8 @@ interface DragControlsProps {
   focusedRef: RefObject<string | null>;
   interaction: RefObject<InteractionState>;
   onInteractionChange?: (active: boolean) => void;
+  /** a click (not a drag) while a body is focused: the exit gesture */
+  onTapWhileFocused?: () => void;
 }
 
 function DragControls({
@@ -458,6 +460,7 @@ function DragControls({
   focusedRef,
   interaction,
   onInteractionChange,
+  onTapWhileFocused,
 }: DragControlsProps) {
   const { gl } = useThree();
   // which group the current inertia applies to
@@ -542,6 +545,10 @@ function DragControls({
       const it = interaction.current;
       if (!it.dragging) return;
       it.dragging = false;
+      // In the planet view a plain click, wherever it lands, is the
+      // way out. (The raycast-based pointer-missed event never fires
+      // there because the planet fills most of the screen.)
+      if (focusedRef.current !== null && it.dragDist < 6) onTapWhileFocused?.();
       // Inertia only for a genuine throw: velocity measured over the
       // final ~100ms of the gesture. A pointer held steady (or barely
       // creeping) at release gives exactly zero spin.
@@ -1042,6 +1049,7 @@ export default function EarthGlobe({
 
   const handleBodyClick = useMemo(
     () => (name: string) => {
+      if (focusedRef.current !== null) return; // a tap in the planet view exits instead
       if (journeyRef.current.p2 < 0.33) return; // bodies are clickable once revealed
       onFocusRequest(name);
     },
@@ -1057,8 +1065,7 @@ export default function EarthGlobe({
       aria-hidden
       onPointerMissed={() => {
         if (interaction.current.dragDist >= 6) return;
-        if (focusedRef.current) onFocusRequest(null);
-        else onBackgroundClick?.();
+        if (!focusedRef.current) onBackgroundClick?.();
       }}
     >
       <Suspense fallback={null}>
@@ -1096,6 +1103,7 @@ export default function EarthGlobe({
                   spinRef={earthSpinRef}
                   interaction={interaction}
                   onEarthClick={() => {
+                    if (focusedRef.current !== null) return; // the tap exit handles it
                     if (!inEarthZone(journeyRef.current)) onFocusRequest("earth");
                   }}
                 />
@@ -1111,6 +1119,7 @@ export default function EarthGlobe({
           focusedRef={focusedRef}
           interaction={interaction}
           onInteractionChange={onInteractionChange}
+          onTapWhileFocused={() => onFocusRequest(null)}
         />
       </Suspense>
     </Canvas>
