@@ -583,7 +583,7 @@ function DragControls({
       el.removeEventListener("pointerup", onUp);
       el.removeEventListener("pointercancel", onUp);
     };
-  }, [gl, targets, journey, focusedRef, interaction, onInteractionChange]);
+  }, [gl, targets, journey, focusedRef, interaction, onInteractionChange, onTapWhileFocused]);
 
   // cursor: grab in interactive zones, plain elsewhere (bodies set
   // their own pointer cursor on hover)
@@ -1047,6 +1047,8 @@ export default function EarthGlobe({
     [],
   );
 
+  const handleTapWhileFocused = useMemo(() => () => onFocusRequest(null), [onFocusRequest]);
+
   const handleBodyClick = useMemo(
     () => (name: string) => {
       if (focusedRef.current !== null) return; // a tap in the planet view exits instead
@@ -1119,7 +1121,7 @@ export default function EarthGlobe({
           focusedRef={focusedRef}
           interaction={interaction}
           onInteractionChange={onInteractionChange}
-          onTapWhileFocused={() => onFocusRequest(null)}
+          onTapWhileFocused={handleTapWhileFocused}
         />
       </Suspense>
     </Canvas>
