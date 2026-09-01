@@ -863,6 +863,22 @@ function SystemRig({
   );
 }
 
+/** Mounts its children the first time the zoom-out begins, so the
+    system's geometry and textures cost nothing at page load. */
+function MountOnJourney({
+  journey,
+  children,
+}: {
+  journey: RefObject<Journey>;
+  children: React.ReactNode;
+}) {
+  const [mounted, setMounted] = useState(false);
+  useFrame(() => {
+    if (!mounted && journey.current.p2 > 0.001) setMounted(true);
+  });
+  return mounted ? <>{children}</> : null;
+}
+
 /** Distant stars, fading in as the journey leaves the sky behind. */
 function Stars({ journey }: { journey: RefObject<Journey> }) {
   const materialRef = useRef<THREE.PointsMaterial>(null);
@@ -1009,23 +1025,25 @@ export default function EarthGlobe({
         <SystemRig journey={journeyRef} focusedRef={focusedRef} systemSpin={systemSpinRef}>
           <group ref={systemSpinRef}>
             <pointLight position={[0, 0, 0]} intensity={3} decay={0.4} />
-            <SunCore
-              journey={journeyRef}
-              interaction={interaction}
-              registerSpin={registerSpin}
-              onBodyClick={handleBodyClick}
-            />
-            <OrbitRings journey={journeyRef} interaction={interaction} />
-            {PLANETS.map((spec) => (
-              <Planet
-                key={spec.name}
-                spec={spec}
+            <MountOnJourney journey={journeyRef}>
+              <SunCore
                 journey={journeyRef}
                 interaction={interaction}
                 registerSpin={registerSpin}
                 onBodyClick={handleBodyClick}
               />
-            ))}
+              <OrbitRings journey={journeyRef} interaction={interaction} />
+              {PLANETS.map((spec) => (
+                <Planet
+                  key={spec.name}
+                  spec={spec}
+                  journey={journeyRef}
+                  interaction={interaction}
+                  registerSpin={registerSpin}
+                  onBodyClick={handleBodyClick}
+                />
+              ))}
+            </MountOnJourney>
             {/* Earth, in its orbital slot — interactive throughout */}
             <group position={EARTH_SYS_POS} scale={EARTH_SYS_R}>
               <group ref={earthSpinRef} rotation={[0, initialYaw, 0]}>

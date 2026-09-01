@@ -105,6 +105,12 @@ body {
   color: var(--bg-a);
 }
 
+/* Without the 3D journey (reduced motion / no WebGL) the scroll
+   runways have nothing to drive — the story flows directly. */
+[data-hero="static"] .journey-runway {
+  display: none;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

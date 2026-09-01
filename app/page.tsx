@@ -10,7 +10,7 @@ export default function Home() {
       <div className="pointer-events-none relative z-10">
         {/* runway one: scroll here pulls the camera back from the limb
             to the whole planet (height = P1_VH in Hero.tsx) */}
-        <div aria-hidden className="h-[160svh]" />
+        <div aria-hidden className="journey-runway h-[160svh]" />
 
         {/* the planet itself — passes during the held beat (HOLD_VH) */}
         <section
@@ -44,7 +44,7 @@ export default function Home() {
 
         {/* runway two: the viewpoint expands from Earth to the whole
             solar system (height = P2_VH in Hero.tsx) */}
-        <div aria-hidden className="h-[260svh]" />
+        <div aria-hidden className="journey-runway h-[260svh]" />
 
         {/* arriving among the planets */}
         <section

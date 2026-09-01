@@ -65,6 +65,7 @@ export function Hero() {
   // the real solar phase arrives right after hydration.
   const [phase, setPhase] = useState<number | null>(null);
   const [mode, setMode] = useState<HeroMode>("loading");
+  const modeRef = useRef<HeroMode>("loading");
   const [timezone, setTimezone] = useState("");
   const [clockMs, setClockMs] = useState<number | null>(null);
   // "interaction mode": the visitor has picked up a body — every
@@ -149,6 +150,16 @@ export function Hero() {
     [animateScrollTo],
   );
 
+  // Static visitors (reduced motion, no WebGL) get no scroll journey:
+  // the page collapses the runways and the snap stays out of the way.
+  useEffect(() => {
+    modeRef.current = mode;
+    if (mode === "static") document.documentElement.dataset.hero = "static";
+    return () => {
+      delete document.documentElement.dataset.hero;
+    };
+  }, [mode]);
+
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- client-only init after hydration
     setMode(detectMode());
@@ -176,6 +187,7 @@ export function Hero() {
     let snapTimer: ReturnType<typeof setTimeout> | undefined;
 
     const snapIfBetweenZones = () => {
+      if (modeRef.current !== "webgl") return;
       if (focusedRef.current !== null || scrollAnim.current !== null) return;
       const vh = window.innerHeight;
       const y = window.scrollY;
@@ -220,6 +232,12 @@ export function Hero() {
 
       cancelAnimationFrame(raf);
       raf = requestAnimationFrame(() => {
+        if (modeRef.current !== "webgl") {
+          if (copyRef.current) {
+            copyRef.current.style.opacity = Math.max(0, 1 - y / (vh * 0.4)).toFixed(3);
+          }
+          return;
+        }
         const p1 = Math.min(1, Math.max(0, y / (vh * P1_VH)));
         const p2 = Math.min(1, Math.max(0, (y - vh * (P1_VH + HOLD_VH)) / (vh * P2_VH)));
         journeyRef.current.p1 = p1;
