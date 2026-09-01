@@ -817,8 +817,9 @@ function DragControls({
     if (gl.domElement.style.cursor !== "pointer" && gl.domElement.style.cursor !== want) {
       gl.domElement.style.cursor = want;
     }
-    // in the deep views every touch drives rotation, never page scroll
-    const ta = deepView ? "none" : "pan-y";
+    // only the locked focus view owns every touch; elsewhere vertical
+    // swipes keep scrolling the page
+    const ta = focusedRef.current !== null ? "none" : "pan-y";
     if (gl.domElement.style.touchAction !== ta) gl.domElement.style.touchAction = ta;
   });
 
@@ -1218,11 +1219,11 @@ function SystemRig({
       const halfH = 1.19; // world units at the system plane
       const halfW = halfH * aspect;
       const outer = 3.45; // outermost orbit + planet radius, system units
-      const scaleEnd = clamp(
-        Math.min((0.95 * halfW) / outer, (0.95 * halfH) / (outer * Math.sin(-SYSTEM_TILT_END))),
-        0.18,
-        0.85,
-      );
+      const vertFit = (0.95 * halfH) / (outer * Math.sin(-SYSTEM_TILT_END));
+      const widthFit = (1.1 * halfW) / outer;
+      // narrow screens let the outer orbits overflow the sides rather
+      // than shrinking the whole system into a miniature
+      const scaleEnd = clamp(Math.max(Math.min(widthFit, vertFit), 0.6 * vertFit), 0.18, 0.9);
       scaleTarget = Math.exp(lerp(Math.log(earthPhaseScale), Math.log(scaleEnd), p2));
       tilt = SYSTEM_TILT_END * p2;
       tmpTiltQuat.setFromAxisAngle(X_AXIS, tilt);
@@ -1333,8 +1334,6 @@ export interface EarthGlobeProps {
   focused: string | null;
   /** clicks on bodies / empty space request focus changes */
   onFocusRequest: (name: string | null) => void;
-  /** click on empty space while nothing is focused (the unlock gesture) */
-  onBackgroundClick?: () => void;
   /** fires when the visitor picks up / releases a body */
   onInteractionChange?: (active: boolean) => void;
   /** disable the idle drift (reduced motion) */
@@ -1347,7 +1346,6 @@ export default function EarthGlobe({
   journeyRef,
   focused,
   onFocusRequest,
-  onBackgroundClick,
   onInteractionChange,
   drift = true,
 }: EarthGlobeProps) {
@@ -1430,10 +1428,6 @@ export default function EarthGlobe({
       camera={{ position: [0, 0.35, 3.1], fov: 42 }}
       style={{ position: "absolute", inset: 0 }}
       aria-hidden
-      onPointerMissed={() => {
-        if (interaction.current.dragDist >= 6) return;
-        if (!focusedRef.current) onBackgroundClick?.();
-      }}
     >
       <Suspense fallback={null}>
         <Stars journey={journeyRef} />

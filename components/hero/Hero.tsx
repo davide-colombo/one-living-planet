@@ -75,14 +75,12 @@ export function Hero() {
   const [hintVisible, setHintVisible] = useState(false);
   // focused celestial body (system view): rig zooms in on it
   const [focused, setFocused] = useState<string | null>(null);
-  // the system and planet views hold the page still until a click
-  const [systemLocked, setSystemLocked] = useState(false);
+  // the planet view holds the page still until a click
   const [lockHintVisible, setLockHintVisible] = useState(false);
   const [atTop, setAtTop] = useState(true);
   const [earthCard, setEarthCard] = useState(false);
   const focusedRef = useRef<string | null>(null);
   const lockedRef = useRef(false);
-  const lockArmedRef = useRef(true);
   const lockHintTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const copyRef = useRef<HTMLDivElement>(null);
   const spaceRef = useRef<HTMLDivElement>(null);
@@ -151,7 +149,6 @@ export function Hero() {
       if (name === "earth" && journeyRef.current.p2 < 0.5) {
         setFocused(null);
         focusedRef.current = null;
-        setSystemLocked(false);
         animateScrollTo(window.innerHeight * P1_VH, 1100);
         return;
       }
@@ -160,12 +157,6 @@ export function Hero() {
     },
     [animateScrollTo],
   );
-
-  // Click on empty space while nothing is focused: the unlock gesture.
-  const onBackgroundClick = useCallback(() => {
-    setSystemLocked(false);
-    setLockHintVisible(false);
-  }, []);
 
   // Static visitors (reduced motion, no WebGL) get no scroll journey:
   // the page collapses the runways and the snap stays out of the way.
@@ -189,7 +180,7 @@ export function Hero() {
   // While a view is locked the page cannot scroll; a scroll attempt
   // shows the way out instead.
   useEffect(() => {
-    const locked = focused !== null || systemLocked;
+    const locked = focused !== null;
     lockedRef.current = locked;
     if (!locked) return;
     const html = document.documentElement;
@@ -209,7 +200,7 @@ export function Hero() {
       window.removeEventListener("wheel", showWayOut);
       window.removeEventListener("touchmove", showWayOut);
     };
-  }, [focused, systemLocked]);
+  }, [focused]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- client-only init after hydration
@@ -307,7 +298,6 @@ export function Hero() {
           }
           return;
         }
-        const { systemAnchor } = anchors();
         const p1 = Math.min(1, Math.max(0, y / (vh * P1_VH)));
         const p2 = Math.min(1, Math.max(0, (y - vh * (P1_VH + HOLD_VH)) / (vh * P2_VH)));
         journeyRef.current.p1 = p1;
@@ -323,13 +313,6 @@ export function Hero() {
         // until the prose slides up to take the stage.
         const { earthAnchor } = anchors();
         setEarthCard(p2 === 0 && y > earthAnchor - vh * 0.25 && y < earthAnchor + vh * 0.45);
-
-        // Arriving at the system view locks the page until a click.
-        if (Math.abs(y - systemAnchor) > vh * 0.5) lockArmedRef.current = true;
-        else if (Math.abs(y - systemAnchor) < vh * 0.05 && lockArmedRef.current) {
-          lockArmedRef.current = false;
-          setSystemLocked(true);
-        }
       });
     };
 
@@ -382,7 +365,6 @@ export function Hero() {
           journeyRef={journeyRef}
           focused={focused}
           onFocusRequest={onFocusRequest}
-          onBackgroundClick={onBackgroundClick}
           onInteractionChange={onInteractionChange}
         />
       ) : null}
@@ -471,7 +453,7 @@ export function Hero() {
           transition: "opacity var(--duration-slow) var(--ease-gentle)",
         }}
       >
-        {focused ? "Click anywhere to exit the planet view" : "Click anywhere to unlock scrolling"}
+        Click anywhere to exit the planet view
       </div>
 
       {/* first-visit hint: the planet can be touched */}
