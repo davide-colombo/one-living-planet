@@ -55,9 +55,9 @@ export const EARTH_FRAGMENT = /* glsl */ `
     color += rimColor * twilight * 0.12;
 
     // fresnel atmosphere rim on the sphere itself
-    float fresnel = pow(1.0 - clamp(dot(normal, viewDir), 0.0, 1.0), 3.0);
+    float fresnel = pow(1.0 - clamp(dot(normal, viewDir), 0.0, 1.0), 2.4);
     float rimLit = 0.35 + 0.65 * smoothstep(-0.3, 0.5, cosSun);
-    color += rimColor * fresnel * rimLit * 0.55;
+    color += rimColor * fresnel * rimLit * 0.75;
 
     gl_FragColor = vec4(color, 1.0);
   }
@@ -75,7 +75,14 @@ export const ATMOSPHERE_VERTEX = /* glsl */ `
   }
 `;
 
-/** Additive halo on a slightly larger back-side sphere. */
+/**
+ * Additive halo on a slightly larger back-side sphere.
+ *
+ * `mu` is 0 exactly at the outer silhouette and grows toward the
+ * planet's limb, so the glow peaks against the limb and decays to
+ * true zero before the geometry edge — no hard ring against the
+ * background.
+ */
 export const ATMOSPHERE_FRAGMENT = /* glsl */ `
   uniform vec3 rimColor;
 
@@ -84,7 +91,8 @@ export const ATMOSPHERE_FRAGMENT = /* glsl */ `
 
   void main() {
     vec3 viewDir = normalize(-vViewPos);
-    float intensity = pow(0.62 - dot(normalize(vNormal), viewDir), 4.0);
-    gl_FragColor = vec4(rimColor, 1.0) * intensity;
+    float mu = clamp(-dot(normalize(vNormal), viewDir), 0.0, 1.0);
+    float halo = pow(smoothstep(0.0, 0.38, mu), 1.6);
+    gl_FragColor = vec4(rimColor * halo * 1.1, 1.0);
   }
 `;

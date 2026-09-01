@@ -130,7 +130,7 @@ function Earth({ rimColor, drift, atMs }: EarthProps) {
       <mesh material={surfaceMaterial}>
         <sphereGeometry args={[1, 96, 96]} />
       </mesh>
-      <mesh material={atmosphereMaterial} scale={1.12}>
+      <mesh material={atmosphereMaterial} scale={1.045}>
         <sphereGeometry args={[1, 64, 64]} />
       </mesh>
     </group>
@@ -155,7 +155,7 @@ export default function EarthGlobe({ rimColor, atMs, drift = true }: EarthGlobeP
       aria-hidden
     >
       <Suspense fallback={null}>
-        <group position={[0, -1.4, 0]} scale={1.5}>
+        <group position={[0, -1.55, 0]} scale={1.5}>
           <Earth rimColor={rimColor} drift={drift} atMs={atMs} />
         </group>
       </Suspense>

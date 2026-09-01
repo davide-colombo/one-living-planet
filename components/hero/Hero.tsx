@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { oklchToRgb, paletteAtPhase, paletteToCssVars } from "@/lib/palette";
 import { localSolarPhase, localTimezone } from "@/lib/solar";
 import { StaticHero } from "./StaticHero";
@@ -50,6 +50,7 @@ export function Hero() {
   const [mode, setMode] = useState<HeroMode>("loading");
   const [timezone, setTimezone] = useState("");
   const [clockMs, setClockMs] = useState<number | null>(null);
+  const copyRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- client-only init after hydration
@@ -67,26 +68,46 @@ export function Hero() {
   }, []);
 
   const palette = useMemo(() => paletteAtPhase(phase ?? 0), [phase]);
-  const vars = useMemo(() => paletteToCssVars(palette) as CSSProperties, [palette]);
+  const vars = useMemo(() => paletteToCssVars(palette), [palette]);
   const rimRgb = useMemo(() => oklchToRgb(palette.rim), [palette]);
 
+  // The live palette drives the whole document, not just the hero —
+  // the page background is one continuous surface, so scrolling out of
+  // the hero never hits a seam.
+  useEffect(() => {
+    const root = document.documentElement;
+    for (const [key, value] of Object.entries(vars)) root.style.setProperty(key, value);
+  }, [vars]);
+
+  // Fade the hero copy out as content starts sliding over the globe.
+  useEffect(() => {
+    const el = copyRef.current;
+    if (!el) return;
+    let raf = 0;
+    const onScroll = () => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => {
+        const f = Math.max(0, 1 - window.scrollY / (window.innerHeight * 0.4));
+        el.style.opacity = f.toFixed(3);
+      });
+    };
+    onScroll();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener("scroll", onScroll);
+    };
+  }, []);
+
   return (
-    <section
-      className="relative h-svh overflow-hidden"
-      style={{
-        ...vars,
-        background: "linear-gradient(to bottom, var(--bg-a), var(--bg-b))",
-        color: "var(--fg)",
-        transition: "background var(--duration-ambient) var(--ease-gentle)",
-      }}
-    >
+    <section className="relative h-full overflow-hidden" style={{ color: "var(--fg)" }}>
       {/* sun glare behind the limb */}
       <div
         aria-hidden
         className="absolute inset-0"
         style={{
           background:
-            "radial-gradient(45% 30% at 72% 88%, color-mix(in oklab, var(--accent) 28%, transparent), transparent 70%)",
+            "radial-gradient(45% 30% at 72% 92%, color-mix(in oklab, var(--accent) 22%, transparent), transparent 70%)",
         }}
       />
 
@@ -96,7 +117,10 @@ export function Hero() {
       {mode === "static" ? <StaticHero /> : null}
 
       {/* copy */}
-      <div className="pointer-events-none absolute inset-0 flex flex-col items-center px-[var(--space-5)] pt-[18svh] text-center">
+      <div
+        ref={copyRef}
+        className="pointer-events-none absolute inset-0 flex flex-col items-center px-[var(--space-5)] pt-[12svh] text-center"
+      >
         <p
           className="font-medium uppercase"
           style={{
@@ -111,7 +135,7 @@ export function Hero() {
               {timezone ? ` · ${timezone.replace("_", " ")}` : ""}
             </>
           ) : (
-            " "
+            " "
           )}
         </p>
         <h1
