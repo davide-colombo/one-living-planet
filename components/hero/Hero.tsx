@@ -79,6 +79,7 @@ export function Hero() {
   const [systemLocked, setSystemLocked] = useState(false);
   const [lockHintVisible, setLockHintVisible] = useState(false);
   const [atTop, setAtTop] = useState(true);
+  const [earthCard, setEarthCard] = useState(false);
   const focusedRef = useRef<string | null>(null);
   const lockedRef = useRef(false);
   const lockArmedRef = useRef(true);
@@ -309,6 +310,10 @@ export function Hero() {
           copyRef.current.style.opacity = Math.max(0, 1 - y / (vh * 0.4)).toFixed(3);
         }
         setAtTop(y < vh * 0.8);
+        // Earth presents its own card while it rests at its anchor,
+        // until the prose slides up to take the stage.
+        const { earthAnchor } = anchors();
+        setEarthCard(p2 === 0 && y > earthAnchor - vh * 0.25 && y < earthAnchor + vh * 0.45);
 
         // Arriving at the system view locks the page until a click.
         if (Math.abs(y - systemAnchor) > vh * 0.5) lockArmedRef.current = true;
@@ -441,7 +446,7 @@ export function Hero() {
       </div>
 
       {/* focused body: name and facts */}
-      <FocusPanel focused={focused} />
+      <FocusPanel focused={focused ?? (earthCard ? "earth" : null)} />
 
       {/* the way out of a locked view, shown when scrolling is tried */}
       <div
@@ -499,7 +504,10 @@ function FocusPanel({ focused }: { focused: string | null }) {
       }}
     >
       {facts ? (
-        <div className="w-full max-w-xs text-left">
+        <div
+          className="w-full max-w-xs text-left md:max-w-sm"
+          style={{ textShadow: "0 2px 24px rgba(0, 0, 0, 0.9), 0 1px 4px rgba(0, 0, 0, 0.8)" }}
+        >
           <p
             className="font-medium uppercase"
             style={{
@@ -513,21 +521,23 @@ function FocusPanel({ focused }: { focused: string | null }) {
           <h2
             className="mt-1 font-semibold"
             style={{
-              fontSize: "var(--text-title-1)",
-              letterSpacing: "var(--tracking-title)",
+              fontSize: "var(--text-display)",
+              letterSpacing: "var(--tracking-display)",
               lineHeight: "var(--leading-tight)",
             }}
           >
             {facts.title}
           </h2>
-          <dl className="mt-[var(--space-4)] grid gap-[var(--space-1)]">
+          <dl className="mt-[var(--space-5)] grid gap-[var(--space-2)]">
             {facts.rows.map(([label, value]) => (
               <div
                 key={label}
                 className="flex items-baseline justify-between gap-[var(--space-4)]"
-                style={{ fontSize: "var(--text-body-sm)" }}
+                style={{ fontSize: "clamp(0.95rem, 0.8rem + 0.45vw, 1.3rem)" }}
               >
-                <dt style={{ color: "var(--fg-muted)" }}>{label}</dt>
+                <dt style={{ color: "color-mix(in oklab, var(--fg) 72%, transparent)" }}>
+                  {label}
+                </dt>
                 <dd className="text-right" style={{ color: "var(--fg)" }}>
                   {value}
                 </dd>
@@ -535,10 +545,10 @@ function FocusPanel({ focused }: { focused: string | null }) {
             ))}
           </dl>
           <p
-            className="mt-[var(--space-4)]"
+            className="mt-[var(--space-5)]"
             style={{
-              color: "var(--fg-muted)",
-              fontSize: "var(--text-body-sm)",
+              color: "color-mix(in oklab, var(--fg) 82%, transparent)",
+              fontSize: "clamp(0.95rem, 0.8rem + 0.45vw, 1.25rem)",
               lineHeight: "var(--leading-relaxed)",
             }}
           >
