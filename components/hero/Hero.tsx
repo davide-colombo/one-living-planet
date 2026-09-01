@@ -8,6 +8,10 @@ import { StaticHero } from "./StaticHero";
 
 const EarthGlobe = dynamic(() => import("./EarthGlobe"), { ssr: false });
 
+/** Scroll distance of the pull-back journey, in viewport heights.
+    Keep in sync with the journey spacer on the landing page. */
+export const JOURNEY_VH = 1.6;
+
 function solarClockLabel(phase: number): string {
   const totalMinutes = Math.round(phase * 1440) % 1440;
   const h = Math.floor(totalMinutes / 60);
@@ -51,6 +55,8 @@ export function Hero() {
   const [timezone, setTimezone] = useState("");
   const [clockMs, setClockMs] = useState<number | null>(null);
   const copyRef = useRef<HTMLDivElement>(null);
+  const spaceRef = useRef<HTMLDivElement>(null);
+  const progressRef = useRef(0);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- client-only init after hydration
@@ -67,6 +73,34 @@ export function Hero() {
     return () => clearInterval(id);
   }, []);
 
+  // One scroll handler drives the whole journey: 3D rig progress,
+  // the deep-space fade, and the hero copy fading out.
+  useEffect(() => {
+    let raf = 0;
+    const onScroll = () => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => {
+        const vh = window.innerHeight;
+        const p = Math.min(1, Math.max(0, window.scrollY / (vh * JOURNEY_VH)));
+        progressRef.current = p;
+        if (spaceRef.current) {
+          spaceRef.current.style.opacity = Math.min(1, p * 1.25).toFixed(3);
+        }
+        if (copyRef.current) {
+          copyRef.current.style.opacity = Math.max(0, 1 - window.scrollY / (vh * 0.4)).toFixed(3);
+        }
+      });
+    };
+    onScroll();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("resize", onScroll);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener("scroll", onScroll);
+      window.removeEventListener("resize", onScroll);
+    };
+  }, []);
+
   const palette = useMemo(() => paletteAtPhase(phase ?? 0), [phase]);
   const vars = useMemo(() => paletteToCssVars(palette), [palette]);
   const rimRgb = useMemo(() => oklchToRgb(palette.rim), [palette]);
@@ -79,40 +113,18 @@ export function Hero() {
     for (const [key, value] of Object.entries(vars)) root.style.setProperty(key, value);
   }, [vars]);
 
-  // Fade the hero copy out as content starts sliding over the globe.
-  useEffect(() => {
-    const el = copyRef.current;
-    if (!el) return;
-    let raf = 0;
-    const onScroll = () => {
-      cancelAnimationFrame(raf);
-      raf = requestAnimationFrame(() => {
-        const f = Math.max(0, 1 - window.scrollY / (window.innerHeight * 0.4));
-        el.style.opacity = f.toFixed(3);
-      });
-    };
-    onScroll();
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => {
-      cancelAnimationFrame(raf);
-      window.removeEventListener("scroll", onScroll);
-    };
-  }, []);
-
   return (
     <section className="relative h-full overflow-hidden" style={{ color: "var(--fg)" }}>
-      {/* sun glare behind the limb */}
+      {/* deep space, fading in as the journey pulls back */}
       <div
+        ref={spaceRef}
         aria-hidden
         className="absolute inset-0"
-        style={{
-          background:
-            "radial-gradient(45% 30% at 72% 92%, color-mix(in oklab, var(--accent) 22%, transparent), transparent 70%)",
-        }}
+        style={{ background: "#040508", opacity: 0 }}
       />
 
       {mode === "webgl" && clockMs !== null ? (
-        <EarthGlobe rimColor={rimRgb} atMs={clockMs} />
+        <EarthGlobe rimColor={rimRgb} atMs={clockMs} progressRef={progressRef} />
       ) : null}
       {mode === "static" ? <StaticHero /> : null}
 
@@ -154,23 +166,23 @@ export function Hero() {
         >
           One living planet, seen the way it is lit right now — from where you are.
         </p>
-      </div>
 
-      {/* scroll cue */}
-      <a
-        href="#overview"
-        className="absolute bottom-[var(--space-6)] left-1/2 -translate-x-1/2 rounded-full px-4 py-1.5"
-        style={{
-          fontSize: "var(--text-caption)",
-          letterSpacing: "var(--tracking-caps)",
-          color: "var(--fg-muted)",
-          background: "color-mix(in oklab, var(--bg-a) 45%, transparent)",
-          textTransform: "uppercase",
-          transition: "color var(--duration-fast) var(--ease-out)",
-        }}
-      >
-        Begin
-      </a>
+        {/* scroll cue */}
+        <a
+          href="#overview"
+          className="pointer-events-auto absolute bottom-[var(--space-6)] left-1/2 -translate-x-1/2 rounded-full px-4 py-1.5"
+          style={{
+            fontSize: "var(--text-caption)",
+            letterSpacing: "var(--tracking-caps)",
+            color: "var(--fg-muted)",
+            background: "color-mix(in oklab, var(--bg-a) 45%, transparent)",
+            textTransform: "uppercase",
+            transition: "color var(--duration-fast) var(--ease-out)",
+          }}
+        >
+          Begin
+        </a>
+      </div>
     </section>
   );
 }

@@ -15,6 +15,10 @@ export default function Home() {
         <Hero />
       </div>
       <div className="relative z-10">
+        {/* journey runway: scroll here pulls the camera back from the
+            limb to the whole planet before the chapters arrive
+            (height = JOURNEY_VH in Hero.tsx) */}
+        <div aria-hidden className="h-[160svh]" />
         {CHAPTERS.map((c) => (
           <section
             key={c.id}

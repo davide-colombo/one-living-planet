@@ -54,45 +54,11 @@ export const EARTH_FRAGMENT = /* glsl */ `
     float twilight = smoothstep(-0.12, 0.05, cosSun) * (1.0 - smoothstep(0.05, 0.35, cosSun));
     color += rimColor * twilight * 0.12;
 
-    // fresnel atmosphere rim on the sphere itself
-    float fresnel = pow(1.0 - clamp(dot(normal, viewDir), 0.0, 1.0), 2.4);
+    // faint edge sheen — just enough to lift the limb off the sky
+    float fresnel = pow(1.0 - clamp(dot(normal, viewDir), 0.0, 1.0), 3.0);
     float rimLit = 0.35 + 0.65 * smoothstep(-0.3, 0.5, cosSun);
-    color += rimColor * fresnel * rimLit * 0.75;
+    color += rimColor * fresnel * rimLit * 0.35;
 
     gl_FragColor = vec4(color, 1.0);
-  }
-`;
-
-export const ATMOSPHERE_VERTEX = /* glsl */ `
-  varying vec3 vNormal;
-  varying vec3 vViewPos;
-
-  void main() {
-    vNormal = normalize(normalMatrix * normal);
-    vec4 mvPos = modelViewMatrix * vec4(position, 1.0);
-    vViewPos = mvPos.xyz;
-    gl_Position = projectionMatrix * mvPos;
-  }
-`;
-
-/**
- * Additive halo on a slightly larger back-side sphere.
- *
- * `mu` is 0 exactly at the outer silhouette and grows toward the
- * planet's limb, so the glow peaks against the limb and decays to
- * true zero before the geometry edge — no hard ring against the
- * background.
- */
-export const ATMOSPHERE_FRAGMENT = /* glsl */ `
-  uniform vec3 rimColor;
-
-  varying vec3 vNormal;
-  varying vec3 vViewPos;
-
-  void main() {
-    vec3 viewDir = normalize(-vViewPos);
-    float mu = clamp(-dot(normalize(vNormal), viewDir), 0.0, 1.0);
-    float halo = pow(smoothstep(0.0, 0.38, mu), 1.6);
-    gl_FragColor = vec4(rimColor * halo * 1.1, 1.0);
   }
 `;
