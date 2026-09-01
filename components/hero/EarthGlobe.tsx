@@ -126,8 +126,8 @@ interface InteractionState {
   vel: number;
   /** ms timestamp of the last pointer activity */
   lastActiveMs: number;
-  /** graticule/axis visibility target (Earth handling) */
-  reveal: boolean;
+  /** body whose axis/graticule shows (the one being handled) */
+  revealFor: string | null;
   /** orbit-ring visibility target (system handling) */
   revealOrbits: boolean;
   /** pixels moved during the current/last pointer gesture */
@@ -410,17 +410,10 @@ function Graticule({ interaction }: { interaction: RefObject<InteractionState> }
     () => toLineGeometry([...circlePoints(0, R, 192), ...meridianPoints(0, R, 128)]),
     [],
   );
-  const axisGeom = useMemo(
-    () => toLineGeometry([0, -1.45, 0, 0, -1.004, 0, 0, 1.004, 0, 0, 1.45, 0]),
-    [],
-  );
-
   const gridMat = useRef<THREE.LineBasicMaterial>(null);
   const equatorMat = useRef<THREE.LineBasicMaterial>(null);
-  const axisMat = useRef<THREE.LineBasicMaterial>(null);
-  useOpacityDriver(gridMat, () => (interaction.current.reveal ? 0.22 : 0));
-  useOpacityDriver(equatorMat, () => (interaction.current.reveal ? 0.85 : 0));
-  useOpacityDriver(axisMat, () => (interaction.current.reveal ? 0.7 : 0));
+  useOpacityDriver(gridMat, () => (interaction.current.revealFor === "earth" ? 0.22 : 0));
+  useOpacityDriver(equatorMat, () => (interaction.current.revealFor === "earth" ? 0.85 : 0));
 
   return (
     <group>
@@ -442,16 +435,51 @@ function Graticule({ interaction }: { interaction: RefObject<InteractionState> }
           depthWrite={false}
         />
       </lineSegments>
-      <lineSegments geometry={axisGeom}>
+      <BodyAxis interaction={interaction} name="earth" />
+      <GraticuleLabels interaction={interaction} />
+    </group>
+  );
+}
+
+/**
+ * The rotation axis of a body, revealed while it is being handled:
+ * a line through the poles, a red arrow for north (as on a compass)
+ * and a small filled sphere for south.
+ */
+function BodyAxis({
+  interaction,
+  name,
+}: {
+  interaction: RefObject<InteractionState>;
+  name: string;
+}) {
+  const lineMat = useRef<THREE.LineBasicMaterial>(null);
+  const northMat = useRef<THREE.MeshBasicMaterial>(null);
+  const southMat = useRef<THREE.MeshBasicMaterial>(null);
+  const geom = useMemo(() => toLineGeometry([0, -1.45, 0, 0, 1.45, 0]), []);
+  const active = () => (interaction.current.revealFor === name ? 1 : 0);
+  useOpacityDriver(lineMat, () => 0.7 * active());
+  useOpacityDriver(northMat, active);
+  useOpacityDriver(southMat, active);
+  return (
+    <group>
+      <lineSegments geometry={geom}>
         <lineBasicMaterial
-          ref={axisMat}
+          ref={lineMat}
           color="#e8f0ff"
           transparent
           opacity={0}
           depthWrite={false}
         />
       </lineSegments>
-      <GraticuleLabels interaction={interaction} />
+      <mesh position={[0, 1.5, 0]}>
+        <coneGeometry args={[0.055, 0.16, 16]} />
+        <meshBasicMaterial ref={northMat} color="#ff5a4e" transparent opacity={0} />
+      </mesh>
+      <mesh position={[0, -1.47, 0]}>
+        <sphereGeometry args={[0.05, 16, 16]} />
+        <meshBasicMaterial ref={southMat} color="#e8f0ff" transparent opacity={0} />
+      </mesh>
     </group>
   );
 }
@@ -505,7 +533,7 @@ function GraticuleLabels({ interaction }: { interaction: RefObject<InteractionSt
   );
 
   useFrame((_, delta) => {
-    const target = interaction.current.reveal ? 0.9 : 0;
+    const target = interaction.current.revealFor === "earth" ? 0.9 : 0;
     const k = 1 - Math.exp(-6 * delta);
     for (const m of materials.current) {
       m.opacity += (target - m.opacity) * k;
@@ -693,7 +721,7 @@ function DragControls({
       it.dragging = true;
       it.vel = 0;
       it.dragDist = 0;
-      it.reveal = !isSystem && !focusedRef.current;
+      it.revealFor = isSystem ? null : (focusedRef.current ?? "earth");
       it.revealOrbits = isSystem;
       it.lastActiveMs = performance.now();
       lastX = e.clientX;
@@ -748,7 +776,7 @@ function DragControls({
       el.style.cursor = "grab";
       clearTimeout(endTimer);
       endTimer = setTimeout(() => {
-        interaction.current.reveal = false;
+        interaction.current.revealFor = null;
         interaction.current.revealOrbits = false;
         onInteractionChange?.(false);
       }, RESUME_DRIFT_AFTER_MS);
@@ -916,6 +944,9 @@ function SunCore({ journey, interaction, focusedRef, registerSpin, onBodyClick }
           <sphereGeometry args={[SUN_R, 48, 48]} />
           <meshBasicMaterial ref={coreMat} map={surface} color="#ffe9b8" transparent opacity={0} />
         </mesh>
+        <group scale={SUN_R}>
+          <BodyAxis interaction={interaction} name="sun" />
+        </group>
       </group>
       <sprite scale={[SUN_R * 4.5, SUN_R * 4.5, 1]}>
         <spriteMaterial
@@ -1037,6 +1068,9 @@ function Planet({
             opacity={0}
           />
         </mesh>
+        <group scale={spec.r}>
+          <BodyAxis interaction={interaction} name={spec.name} />
+        </group>
         {spec.ring ? <SaturnRing spec={spec} journey={journey} focusedRef={focusedRef} /> : null}
       </group>
     </group>
@@ -1300,7 +1334,7 @@ export default function EarthGlobe({
     dragging: false,
     vel: 0,
     lastActiveMs: 0,
-    reveal: false,
+    revealFor: null,
     revealOrbits: false,
     dragDist: 0,
   });
