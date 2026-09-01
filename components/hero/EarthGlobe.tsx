@@ -245,6 +245,7 @@ interface EarthSurfaceProps {
   atMs: number;
   spinRef: RefObject<THREE.Group | null>;
   interaction: RefObject<InteractionState>;
+  focusedRef: RefObject<string | null>;
   onEarthClick?: () => void;
 }
 
@@ -256,6 +257,7 @@ function EarthSurface({
   atMs,
   spinRef,
   interaction,
+  focusedRef,
   onEarthClick,
 }: EarthSurfaceProps) {
   const { gl } = useThree();
@@ -293,7 +295,9 @@ function EarthSurface({
           nightMap: { value: null },
           sunDir: { value: new THREE.Vector3(1, 0, 0) },
           rimColor: { value: new THREE.Color() },
+          uOpacity: { value: 1 },
         },
+        transparent: true,
       }),
     [],
   );
@@ -320,6 +324,11 @@ function EarthSurface({
     const sunWorld = surfaceMaterial.uniforms.sunDir.value as THREE.Vector3;
     group.getWorldQuaternion(tmpQuat);
     sunWorld.copy(sunEarthFixed).applyQuaternion(tmpQuat).normalize();
+    // While another body is focused, Earth steps out of the picture.
+    const f = focusedRef.current;
+    const target = f !== null && f !== "earth" ? 0 : 1;
+    const u = surfaceMaterial.uniforms.uOpacity;
+    u.value += (target - u.value) * (1 - Math.exp(-6 * delta));
   });
 
   return (
@@ -656,10 +665,18 @@ const SUN_GLOW_STOPS: Array<[number, string]> = [
 ];
 
 /** Earth-local sunrise glow; fades away as the system zoom begins. */
-function EarthriseGlow({ journey }: { journey: RefObject<Journey> }) {
+function EarthriseGlow({
+  journey,
+  focusedRef,
+}: {
+  journey: RefObject<Journey>;
+  focusedRef: RefObject<string | null>;
+}) {
   const texture = useMemo(() => makeGlowTexture(SUN_GLOW_STOPS), []);
   const mat = useRef<THREE.SpriteMaterial>(null);
-  useOpacityDriver(mat, () => 0.75 * (1 - smooth(clamp(journey.current.p2 * 2.5, 0, 1))));
+  useOpacityDriver(mat, () =>
+    focusedRef.current !== null ? 0 : 0.75 * (1 - smooth(clamp(journey.current.p2 * 2.5, 0, 1))),
+  );
   return (
     <sprite position={[0, 0.9, -2.4]} scale={[3.0, 3.0, 1]}>
       <spriteMaterial
@@ -681,18 +698,25 @@ function EarthriseGlow({ journey }: { journey: RefObject<Journey> }) {
 interface BodyCommonProps {
   journey: RefObject<Journey>;
   interaction: RefObject<InteractionState>;
+  focusedRef: RefObject<string | null>;
   registerSpin: (name: string, group: THREE.Group | null) => void;
   onBodyClick: (name: string) => void;
 }
 
-function SunCore({ journey, interaction, registerSpin, onBodyClick }: BodyCommonProps) {
+/** Visibility of a body: hidden while any other body holds the focus. */
+function bodyReveal(journey: Journey, focused: string | null, name: string): number {
+  if (focused !== null && focused !== name) return 0;
+  return systemReveal(journey.p2);
+}
+
+function SunCore({ journey, interaction, focusedRef, registerSpin, onBodyClick }: BodyCommonProps) {
   const glowTexture = useMemo(() => makeGlowTexture(SUN_GLOW_STOPS), []);
   const surface = useBodyTexture(SUN_SPEC);
   const glowMat = useRef<THREE.SpriteMaterial>(null);
   const coreMat = useRef<THREE.MeshBasicMaterial>(null);
-  const p2 = () => systemReveal(journey.current.p2);
-  useOpacityDriver(glowMat, () => 0.5 * p2());
-  useOpacityDriver(coreMat, p2);
+  const reveal = () => bodyReveal(journey.current, focusedRef.current, "sun");
+  useOpacityDriver(glowMat, () => 0.5 * reveal());
+  useOpacityDriver(coreMat, reveal);
   return (
     <group>
       <group ref={(g) => registerSpin("sun", g)}>
@@ -721,7 +745,15 @@ function SunCore({ journey, interaction, registerSpin, onBodyClick }: BodyCommon
 
 /** Saturn's rings: the texture is a radial strip, so the ring
     geometry gets UVs that run inner edge → outer edge. */
-function SaturnRing({ spec, journey }: { spec: PlanetSpec; journey: RefObject<Journey> }) {
+function SaturnRing({
+  spec,
+  journey,
+  focusedRef,
+}: {
+  spec: PlanetSpec;
+  journey: RefObject<Journey>;
+  focusedRef: RefObject<string | null>;
+}) {
   const mat = useRef<THREE.MeshBasicMaterial>(null);
   const inner = spec.r * 1.24;
   const outer = spec.r * 2.27;
@@ -746,7 +778,7 @@ function SaturnRing({ spec, journey }: { spec: PlanetSpec; journey: RefObject<Jo
       alive = false;
     };
   }, []);
-  useOpacityDriver(mat, () => 0.9 * systemReveal(journey.current.p2));
+  useOpacityDriver(mat, () => 0.9 * bodyReveal(journey.current, focusedRef.current, spec.name));
   return (
     <mesh geometry={geometry} rotation={[1.25, 0, 0.3]}>
       <meshBasicMaterial
@@ -767,13 +799,13 @@ function Planet({
   spec,
   journey,
   interaction,
+  focusedRef,
   registerSpin,
   onBodyClick,
 }: BodyCommonProps & { spec: PlanetSpec }) {
   const mat = useRef<THREE.MeshStandardMaterial>(null);
   const surface = useBodyTexture(spec);
-  const p2 = () => systemReveal(journey.current.p2);
-  useOpacityDriver(mat, p2);
+  useOpacityDriver(mat, () => bodyReveal(journey.current, focusedRef.current, spec.name));
   const pos = useMemo(() => orbitPosition(spec.orbit, spec.angle), [spec]);
   return (
     <group position={pos}>
@@ -810,7 +842,7 @@ function Planet({
             opacity={0}
           />
         </mesh>
-        {spec.ring ? <SaturnRing spec={spec} journey={journey} /> : null}
+        {spec.ring ? <SaturnRing spec={spec} journey={journey} focusedRef={focusedRef} /> : null}
       </group>
     </group>
   );
@@ -837,9 +869,11 @@ function orbitRingPoints(radius: number, segments = 160): number[] {
 function OrbitRings({
   journey,
   interaction,
+  focusedRef,
 }: {
   journey: RefObject<Journey>;
   interaction: RefObject<InteractionState>;
+  focusedRef: RefObject<string | null>;
 }) {
   const geom = useMemo(() => {
     const pts: number[] = [];
@@ -850,7 +884,9 @@ function OrbitRings({
   }, []);
   const mat = useRef<THREE.LineBasicMaterial>(null);
   useOpacityDriver(mat, () =>
-    interaction.current.revealOrbits ? 0.3 * systemReveal(journey.current.p2) : 0,
+    interaction.current.revealOrbits && focusedRef.current === null
+      ? 0.3 * systemReveal(journey.current.p2)
+      : 0,
   );
   return (
     <lineSegments geometry={geom}>
@@ -896,9 +932,9 @@ function SystemRig({
     let tilt: number;
 
     if (focusSpec) {
-      // the body fills half of the viewport's smaller dimension
+      // the body fills most of the viewport's smaller dimension
       const halfH = 0.88; // world units at the focus plane
-      const focusR = 0.5 * Math.min(halfH, halfH * aspect);
+      const focusR = 0.62 * Math.min(halfH, halfH * aspect);
       scaleTarget = focusR / focusSpec.r;
       tilt = SYSTEM_TILT_END;
       tmpTiltQuat.setFromAxisAngle(X_AXIS, tilt);
@@ -1138,16 +1174,18 @@ export default function EarthGlobe({
               <SunCore
                 journey={journeyRef}
                 interaction={interaction}
+                focusedRef={focusedRef}
                 registerSpin={registerSpin}
                 onBodyClick={handleBodyClick}
               />
-              <OrbitRings journey={journeyRef} interaction={interaction} />
+              <OrbitRings journey={journeyRef} interaction={interaction} focusedRef={focusedRef} />
               {PLANETS.map((spec) => (
                 <Planet
                   key={spec.name}
                   spec={spec}
                   journey={journeyRef}
                   interaction={interaction}
+                  focusedRef={focusedRef}
                   registerSpin={registerSpin}
                   onBodyClick={handleBodyClick}
                 />
@@ -1162,6 +1200,7 @@ export default function EarthGlobe({
                   atMs={atMs}
                   spinRef={earthSpinRef}
                   interaction={interaction}
+                  focusedRef={focusedRef}
                   onEarthClick={() => {
                     if (focusedRef.current !== null) return; // the tap exit handles it
                     if (!inEarthZone(journeyRef.current)) onFocusRequest("earth");
@@ -1169,7 +1208,7 @@ export default function EarthGlobe({
                 />
                 <Graticule interaction={interaction} />
               </group>
-              <EarthriseGlow journey={journeyRef} />
+              <EarthriseGlow journey={journeyRef} focusedRef={focusedRef} />
             </group>
           </group>
         </SystemRig>

@@ -27,6 +27,7 @@ export const EARTH_FRAGMENT = /* glsl */ `
   uniform sampler2D nightMap;
   uniform vec3 sunDir;
   uniform vec3 rimColor;
+  uniform float uOpacity;
 
   varying vec2 vUv;
   varying vec3 vWorldNormal;
@@ -65,6 +66,6 @@ export const EARTH_FRAGMENT = /* glsl */ `
     float rimLit = 0.35 + 0.65 * smoothstep(-0.3, 0.5, cosSun);
     color += rimColor * fresnel * rimLit * 0.35;
 
-    gl_FragColor = vec4(color, 1.0);
+    gl_FragColor = vec4(color, uOpacity);
   }
 `;
