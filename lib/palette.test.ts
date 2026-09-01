@@ -81,3 +81,13 @@ describe("phaseFromLocalClock", () => {
     expect(phaseFromLocalClock(new Date(2026, 0, 1, 18, 0, 0))).toBe(0.75);
   });
 });
+
+describe("oklchToRgb", () => {
+  it("maps white and black correctly", async () => {
+    const { oklchToRgb } = await import("./palette");
+    expect(oklchToRgb({ l: 1, c: 0, h: 0 }).map((v: number) => Math.round(v * 255))).toEqual([
+      255, 255, 255,
+    ]);
+    expect(oklchToRgb({ l: 0, c: 0, h: 0 })).toEqual([0, 0, 0]);
+  });
+});

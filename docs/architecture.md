@@ -22,8 +22,14 @@
   - Compressed to KTX2/Basis (webp fallback); 1k versions load first, 4k swaps in when ready
 - Custom shader blends day/night across the terminator using the sun-direction uniform
 - Performance budget: 60 fps on mid-range mobile; hero payload < 3 MB
+  (current: ~403 KB gz JS incl. deferred three.js chunk + 612 KB textures, 68 KB up front)
 - Fallbacks: `prefers-reduced-motion` and no-WebGL get a pre-rendered static hero image with the
-  same palette treatment
+  same palette treatment (`scripts/render-static-hero.mjs`)
+- Texture pipeline: `scripts/prepare-textures.mjs` (sharp → WebP). KTX2/Basis variants are a
+  follow-up — requires `toktx` (KTX-Software), not installed on the build machine yet; WebP is
+  the mandated fallback and currently the only shipped format
+- Dev-only time travel on the landing page: `?t=<solar hour 0–24>` shifts palette and sun
+  together (stripped in production builds)
 
 ## Data-compactness principles (later phases)
 
