@@ -422,7 +422,7 @@ function DragControls({
 
     let lastX = 0;
     let lastY = 0;
-    let lastT = 0;
+    let samples: Array<{ t: number; x: number }> = [];
     let endTimer: ReturnType<typeof setTimeout> | undefined;
 
     const resolveTarget = (): { group: THREE.Group | null; isSystem: boolean } | null => {
@@ -463,7 +463,7 @@ function DragControls({
       it.lastActiveMs = performance.now();
       lastX = e.clientX;
       lastY = e.clientY;
-      lastT = performance.now();
+      samples = [{ t: performance.now(), x: e.clientX }];
       el.style.cursor = "grabbing";
       clearTimeout(endTimer);
       onInteractionChange?.(true);
@@ -478,22 +478,33 @@ function DragControls({
       const dx = e.clientX - lastX;
       const dy = e.clientY - lastY;
       it.dragDist += Math.abs(dx) + Math.abs(dy);
-      const dYaw = dx * 0.005;
-      group.rotation.y += dYaw;
+      group.rotation.y += dx * 0.005;
       const tiltMax = activeIsSystem.current ? 0.35 : TILT_LIMIT;
       group.rotation.x = clamp(group.rotation.x + dy * 0.004, -tiltMax, tiltMax);
-      const dt = Math.max(8, now - lastT) / 1000;
-      it.vel = 0.75 * it.vel + 0.25 * (dYaw / dt);
       it.lastActiveMs = now;
       lastX = e.clientX;
       lastY = e.clientY;
-      lastT = now;
+      samples.push({ t: now, x: e.clientX });
+      if (samples.length > 24) samples.shift();
     };
 
     const onUp = () => {
       const it = interaction.current;
       if (!it.dragging) return;
       it.dragging = false;
+      // Inertia only for a genuine throw: velocity measured over the
+      // final ~100ms of the gesture. A pointer held steady (or barely
+      // creeping) at release gives exactly zero spin.
+      const now = performance.now();
+      const recent = samples.filter((s) => s.t >= now - 100);
+      const last = recent[recent.length - 1];
+      it.vel = 0;
+      if (last && recent.length >= 2 && now - last.t < 90) {
+        const first = recent[0];
+        const dtS = Math.max(0.016, (last.t - first.t) / 1000);
+        const v = ((last.x - first.x) * 0.005) / dtS; // rad/s
+        if (Math.abs(v) > 0.5) it.vel = clamp(v, -5, 5);
+      }
       it.lastActiveMs = performance.now();
       el.style.cursor = "grab";
       clearTimeout(endTimer);
