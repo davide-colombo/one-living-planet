@@ -7,7 +7,7 @@
 import { Suspense, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { Canvas, useFrame, useLoader, useThree } from "@react-three/fiber";
 import * as THREE from "three";
-import { sunDirection, longitudeFromUtcOffset } from "@/lib/solar";
+import { localSolarPhase, sunDirection, longitudeFromUtcOffset } from "@/lib/solar";
 import { EARTH_FRAGMENT, EARTH_VERTEX } from "./earth-shaders";
 
 /**
@@ -371,20 +371,24 @@ function circlePoints(lat: number, radius: number, segments = 128): number[] {
   return pts;
 }
 
+/** Geographic lat/lon → local direction, matching the sphere texture
+    mapping (lon 0° = +X, 90°E = −Z). */
+function latLonToLocal(latDeg: number, lonDeg: number, radius: number): [number, number, number] {
+  const la = latDeg * DEG;
+  const lo = lonDeg * DEG;
+  return [
+    Math.cos(la) * Math.cos(lo) * radius,
+    Math.sin(la) * radius,
+    -Math.cos(la) * Math.sin(lo) * radius,
+  ];
+}
+
 function meridianPoints(lonDeg: number, radius: number, segments = 96): number[] {
   const pts: number[] = [];
-  const lon = lonDeg * DEG;
   for (let i = 0; i < segments; i++) {
-    const a = -85 * DEG + (i / segments) * 170 * DEG;
-    const b = -85 * DEG + ((i + 1) / segments) * 170 * DEG;
-    pts.push(
-      Math.cos(a) * Math.sin(lon) * radius,
-      Math.sin(a) * radius,
-      Math.cos(a) * Math.cos(lon) * radius,
-      Math.cos(b) * Math.sin(lon) * radius,
-      Math.sin(b) * radius,
-      Math.cos(b) * Math.cos(lon) * radius,
-    );
+    const a = -85 + (i / segments) * 170;
+    const b = -85 + ((i + 1) / segments) * 170;
+    pts.push(...latLonToLocal(a, lonDeg, radius), ...latLonToLocal(b, lonDeg, radius));
   }
   return pts;
 }
@@ -502,16 +506,7 @@ function GraticuleLabels({ interaction }: { interaction: RefObject<InteractionSt
     const out: Array<{ text: string; position: THREE.Vector3 }> = [];
     const R = 1.06;
     const place = (lat: number, lon: number, text: string) => {
-      const la = lat * DEG;
-      const lo = lon * DEG;
-      out.push({
-        text,
-        position: new THREE.Vector3(
-          Math.cos(la) * Math.sin(lo) * R,
-          Math.sin(la) * R,
-          Math.cos(la) * Math.cos(lo) * R,
-        ),
-      });
+      out.push({ text, position: new THREE.Vector3(...latLonToLocal(lat, lon, R)) });
     };
     for (let lat = -60; lat <= 60; lat += 30) {
       if (lat !== 0) place(lat, 4, `${Math.abs(lat)}°${lat > 0 ? "N" : "S"}`);
@@ -597,11 +592,13 @@ function Moon({ focusedRef }: { focusedRef: RefObject<string | null> }) {
       <mesh position={[4.6, 0, 0]}>
         <sphereGeometry args={[0.27, 32, 32]} />
         <meshStandardMaterial
+          key={texture ? "textured" : "loading"}
           ref={mat}
           map={texture ?? undefined}
           emissiveMap={texture ?? undefined}
           emissive="#ffffff"
-          emissiveIntensity={0.1}
+          emissiveIntensity={0.28}
+          color="#b9b9b9"
           roughness={1}
           transparent
           opacity={0}
@@ -870,17 +867,26 @@ const SUN_GLOW_STOPS: Array<[number, string]> = [
 function EarthriseGlow({
   journey,
   focusedRef,
+  atMs,
 }: {
   journey: RefObject<Journey>;
   focusedRef: RefObject<string | null>;
+  atMs: number;
 }) {
   const texture = useMemo(() => makeGlowTexture(SUN_GLOW_STOPS), []);
   const mat = useRef<THREE.SpriteMaterial>(null);
+  // the sun can only crest behind Earth when it is on the far side
+  const behindness = useMemo(() => {
+    const p = localSolarPhase(new Date(atMs));
+    return smooth(clamp((Math.abs(p - 0.5) - 0.18) / 0.14, 0, 1));
+  }, [atMs]);
   useOpacityDriver(mat, () =>
-    focusedRef.current !== null ? 0 : 0.75 * (1 - smooth(clamp(journey.current.p2 * 2.5, 0, 1))),
+    focusedRef.current !== null
+      ? 0
+      : 0.6 * behindness * (1 - smooth(clamp(journey.current.p2 * 2.5, 0, 1))),
   );
   return (
-    <sprite position={[0, 0.9, -2.4]} scale={[3.0, 3.0, 1]}>
+    <sprite position={[0, 0.55, -2.0]} scale={[2.2, 2.2, 1]}>
       <spriteMaterial
         ref={mat}
         map={texture}
@@ -1013,7 +1019,7 @@ function SaturnRing({
   }, []);
   useOpacityDriver(mat, () => 0.9 * bodyReveal(journey.current, focusedRef.current, spec.name));
   return (
-    <mesh geometry={geometry} rotation={[1.25, 0, 0.3]}>
+    <mesh geometry={geometry} rotation={[Math.PI / 2, 0, 0]}>
       <meshBasicMaterial
         key={texture ? "textured" : "flat"}
         ref={mat}
@@ -1459,7 +1465,7 @@ export default function EarthGlobe({
                 </group>
               </group>
               <Moon focusedRef={focusedRef} />
-              <EarthriseGlow journey={journeyRef} focusedRef={focusedRef} />
+              <EarthriseGlow journey={journeyRef} focusedRef={focusedRef} atMs={atMs} />
             </group>
           </group>
         </SystemRig>
