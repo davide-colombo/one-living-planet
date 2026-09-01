@@ -8,9 +8,14 @@ import { StaticHero } from "./StaticHero";
 
 const EarthGlobe = dynamic(() => import("./EarthGlobe"), { ssr: false });
 
-/** Scroll distance of the pull-back journey, in viewport heights.
-    Keep in sync with the journey spacer on the landing page. */
-export const JOURNEY_VH = 1.6;
+/** Scroll choreography, in viewport heights. Keep in sync with the
+    runway spacers on the landing page:
+    P1 = limb close-up → whole Earth in space,
+    HOLD = a held beat while the planet prose passes,
+    P2 = zoom out from Earth's viewpoint to the whole solar system. */
+export const P1_VH = 1.6;
+export const HOLD_VH = 1.0;
+export const P2_VH = 2.6;
 
 function solarClockLabel(phase: number): string {
   const totalMinutes = Math.round(phase * 1440) % 1440;
@@ -62,7 +67,7 @@ export function Hero() {
   const [hintVisible, setHintVisible] = useState(false);
   const copyRef = useRef<HTMLDivElement>(null);
   const spaceRef = useRef<HTMLDivElement>(null);
-  const progressRef = useRef(0);
+  const journeyRef = useRef({ p1: 0, p2: 0 });
 
   // First-visit hint, until the planet has been touched once.
   useEffect(() => {
@@ -115,10 +120,13 @@ export function Hero() {
       cancelAnimationFrame(raf);
       raf = requestAnimationFrame(() => {
         const vh = window.innerHeight;
-        const p = Math.min(1, Math.max(0, window.scrollY / (vh * JOURNEY_VH)));
-        progressRef.current = p;
+        const y = window.scrollY;
+        const p1 = Math.min(1, Math.max(0, y / (vh * P1_VH)));
+        const p2 = Math.min(1, Math.max(0, (y - vh * (P1_VH + HOLD_VH)) / (vh * P2_VH)));
+        journeyRef.current.p1 = p1;
+        journeyRef.current.p2 = p2;
         if (spaceRef.current) {
-          spaceRef.current.style.opacity = Math.min(1, p * 1.25).toFixed(3);
+          spaceRef.current.style.opacity = Math.min(1, p1 * 1.25).toFixed(3);
         }
         if (copyRef.current) {
           copyRef.current.style.opacity = Math.max(0, 1 - window.scrollY / (vh * 0.4)).toFixed(3);
@@ -161,7 +169,7 @@ export function Hero() {
         <EarthGlobe
           rimColor={rimRgb}
           atMs={clockMs}
-          progressRef={progressRef}
+          journeyRef={journeyRef}
           onInteractionChange={onInteractionChange}
         />
       ) : null}

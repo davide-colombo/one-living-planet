@@ -30,6 +30,10 @@
   the mandated fallback and currently the only shipped format
 - Dev-only time travel on the landing page: `?t=<solar hour 0–24>` shifts palette and sun
   together (stripped in production builds)
+- Scroll choreography: one `SystemRig` transform carries the whole journey — limb close-up →
+  whole Earth (P1), a held beat for prose (HOLD), then a logarithmic zoom-out from Earth's
+  viewpoint into a stylized (not-to-scale) solar system (P2). Every body lives in the same
+  scene graph so the per-body touch interaction can extend to planets and the Sun later.
 
 ## Data-compactness principles (later phases)
 

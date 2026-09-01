@@ -28,9 +28,56 @@ const DRIFT_RAD_PER_S = 0.006; // full turn ≈ 17 min — barely perceptible
 const TILT_LIMIT = 1.1; // rad — how far the planet can be tilted by hand
 const RESUME_DRIFT_AFTER_MS = 2500;
 
-/** Scroll journey: close-up on the limb → the whole planet in space. */
+/** Scroll journey, part one: close-up on the limb → the whole planet. */
 const VIEW_START = { y: -1.55, scale: 1.5 };
 const VIEW_END = { y: -0.15, scale: 0.72 };
+
+/* ------------------------------------------------------------------ */
+/* the solar system — stylized layout, deliberately not to scale       */
+/* ------------------------------------------------------------------ */
+
+/** Earth's slot in the system (system units). */
+const EARTH_ORBIT = 1.0;
+const EARTH_SYS_R = 0.05;
+const EARTH_ANGLE = 1.15;
+
+/** Zoom-out endpoint: whole system in frame, gently tilted. */
+const SYSTEM_TILT_END = -0.5; // rad, around X
+const SYSTEM_SCALE_END = 0.3;
+const SYSTEM_CENTER = new THREE.Vector3(0, 0.08, 0);
+const SUN_R = 0.16;
+
+interface PlanetSpec {
+  name: string;
+  orbit: number;
+  r: number;
+  color: string;
+  angle: number;
+  ring?: boolean;
+}
+
+const PLANETS: PlanetSpec[] = [
+  { name: "mercury", orbit: 0.5, r: 0.024, color: "#a59a8f", angle: 5.1 },
+  { name: "venus", orbit: 0.72, r: 0.045, color: "#d9b98a", angle: 3.9 },
+  { name: "mars", orbit: 1.32, r: 0.034, color: "#c96f4a", angle: 0.4 },
+  { name: "jupiter", orbit: 1.9, r: 0.095, color: "#c9a87e", angle: 2.6 },
+  { name: "saturn", orbit: 2.42, r: 0.08, color: "#d8c49a", angle: 4.4, ring: true },
+  { name: "uranus", orbit: 2.88, r: 0.055, color: "#9fd3d8", angle: 1.8 },
+  { name: "neptune", orbit: 3.3, r: 0.052, color: "#6f8fd8", angle: 5.8 },
+];
+
+const orbitPosition = (orbit: number, angle: number) =>
+  new THREE.Vector3(Math.cos(angle) * orbit, 0, Math.sin(angle) * orbit);
+
+const EARTH_SYS_POS = orbitPosition(EARTH_ORBIT, EARTH_ANGLE);
+
+/** Scroll journey progress, written by the hero's scroll handler. */
+export interface Journey {
+  /** limb close-up → whole Earth */
+  p1: number;
+  /** Earth → the whole solar system */
+  p2: number;
+}
 
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 const smooth = (t: number) => t * t * (3 - 2 * t);
@@ -43,7 +90,7 @@ interface InteractionState {
   vel: number;
   /** ms timestamp of the last pointer activity */
   lastActiveMs: number;
-  /** 0–1 target for graticule/axis visibility */
+  /** graticule/axis visibility target */
   reveal: boolean;
 }
 
@@ -68,6 +115,10 @@ function useProgressiveTexture(lowUrl: string, highUrl: string): THREE.Texture {
   return texture;
 }
 
+/* ------------------------------------------------------------------ */
+/* Earth                                                               */
+/* ------------------------------------------------------------------ */
+
 interface EarthSurfaceProps {
   rimColor: [number, number, number];
   drift: boolean;
@@ -76,6 +127,8 @@ interface EarthSurfaceProps {
   spinRef: RefObject<THREE.Group | null>;
   interaction: RefObject<InteractionState>;
 }
+
+const tmpQuat = new THREE.Quaternion();
 
 function EarthSurface({ rimColor, drift, atMs, spinRef, interaction }: EarthSurfaceProps) {
   const dayMap = useProgressiveTexture(
@@ -123,9 +176,10 @@ function EarthSurface({ rimColor, drift, atMs, spinRef, interaction }: EarthSurf
       Math.abs(it.vel) < 0.01 &&
       performance.now() - it.lastActiveMs > RESUME_DRIFT_AFTER_MS;
     if (drift && settled) group.rotation.y += delta * DRIFT_RAD_PER_S;
-    // Keep lighting glued to geography however the globe is turned.
+    // Keep lighting glued to geography through every parent transform.
     const sunWorld = surfaceMaterial.uniforms.sunDir.value as THREE.Vector3;
-    sunWorld.copy(sunEarthFixed).applyEuler(group.rotation).normalize();
+    group.getWorldQuaternion(tmpQuat);
+    sunWorld.copy(sunEarthFixed).applyQuaternion(tmpQuat).normalize();
   });
 
   return (
@@ -175,18 +229,13 @@ function toLineGeometry(pts: number[]): THREE.BufferGeometry {
   return g;
 }
 
-/** Fades a line material toward `max` while the interaction is live. */
-function useRevealOpacity(
-  ref: RefObject<THREE.LineBasicMaterial | null>,
-  interaction: RefObject<InteractionState>,
-  max: number,
-) {
+/** Fades a material's opacity toward a frame-computed target. */
+function useOpacityDriver(ref: RefObject<THREE.Material | null>, target: () => number, rate = 6) {
   useFrame((_, delta) => {
     const m = ref.current;
     if (!m) return;
-    const target = interaction.current.reveal ? max : 0;
-    const k = 1 - Math.exp(-6 * delta);
-    m.opacity += (target - m.opacity) * k;
+    const k = 1 - Math.exp(-rate * delta);
+    m.opacity += (target() - m.opacity) * k;
     m.visible = m.opacity > 0.004;
   });
 }
@@ -210,9 +259,9 @@ function Graticule({ interaction }: { interaction: RefObject<InteractionState> }
   const gridMat = useRef<THREE.LineBasicMaterial>(null);
   const equatorMat = useRef<THREE.LineBasicMaterial>(null);
   const axisMat = useRef<THREE.LineBasicMaterial>(null);
-  useRevealOpacity(gridMat, interaction, 0.22);
-  useRevealOpacity(equatorMat, interaction, 0.55);
-  useRevealOpacity(axisMat, interaction, 0.7);
+  useOpacityDriver(gridMat, () => (interaction.current.reveal ? 0.22 : 0));
+  useOpacityDriver(equatorMat, () => (interaction.current.reveal ? 0.55 : 0));
+  useOpacityDriver(axisMat, () => (interaction.current.reveal ? 0.7 : 0));
 
   return (
     <group>
@@ -349,32 +398,38 @@ function DragControls({ spinRef, interaction, onInteractionChange }: DragControl
 }
 
 /* ------------------------------------------------------------------ */
+/* the sun cresting behind Earth (hero phase only)                     */
+/* ------------------------------------------------------------------ */
 
-/**
- * The sun, cresting from behind the planet at the center of the limb —
- * a soft additive sprite whose core the Earth occludes, so only the
- * light spilling past the horizon is visible.
- */
-function SunGlow() {
-  const texture = useMemo(() => {
-    const size = 512;
-    const canvas = document.createElement("canvas");
-    canvas.width = canvas.height = size;
-    const ctx = canvas.getContext("2d")!;
-    const g = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
-    g.addColorStop(0, "rgba(255, 252, 244, 1)");
-    g.addColorStop(0.06, "rgba(255, 246, 228, 0.9)");
-    g.addColorStop(0.18, "rgba(255, 228, 196, 0.35)");
-    g.addColorStop(0.42, "rgba(255, 214, 178, 0.1)");
-    g.addColorStop(1, "rgba(255, 205, 170, 0)");
-    ctx.fillStyle = g;
-    ctx.fillRect(0, 0, size, size);
-    return new THREE.CanvasTexture(canvas);
-  }, []);
+function makeGlowTexture(stops: Array<[number, string]>): THREE.CanvasTexture {
+  const size = 512;
+  const canvas = document.createElement("canvas");
+  canvas.width = canvas.height = size;
+  const ctx = canvas.getContext("2d")!;
+  const g = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+  for (const [offset, color] of stops) g.addColorStop(offset, color);
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, size, size);
+  return new THREE.CanvasTexture(canvas);
+}
 
+const SUN_GLOW_STOPS: Array<[number, string]> = [
+  [0, "rgba(255, 252, 244, 1)"],
+  [0.06, "rgba(255, 246, 228, 0.9)"],
+  [0.18, "rgba(255, 228, 196, 0.35)"],
+  [0.42, "rgba(255, 214, 178, 0.1)"],
+  [1, "rgba(255, 205, 170, 0)"],
+];
+
+/** Earth-local sunrise glow; fades away as the system zoom begins. */
+function EarthriseGlow({ journey }: { journey: RefObject<Journey> }) {
+  const texture = useMemo(() => makeGlowTexture(SUN_GLOW_STOPS), []);
+  const mat = useRef<THREE.SpriteMaterial>(null);
+  useOpacityDriver(mat, () => 0.75 * (1 - smooth(clamp(journey.current.p2 * 2.5, 0, 1))));
   return (
     <sprite position={[0, 0.9, -2.4]} scale={[3.0, 3.0, 1]}>
       <spriteMaterial
+        ref={mat}
         map={texture}
         transparent
         depthWrite={false}
@@ -385,8 +440,176 @@ function SunGlow() {
   );
 }
 
+/* ------------------------------------------------------------------ */
+/* solar system bodies (zoom-out phase)                                */
+/* ------------------------------------------------------------------ */
+
+function SunCore({ journey }: { journey: RefObject<Journey> }) {
+  const texture = useMemo(() => makeGlowTexture(SUN_GLOW_STOPS), []);
+  const glowMat = useRef<THREE.SpriteMaterial>(null);
+  const coreMat = useRef<THREE.MeshBasicMaterial>(null);
+  const p2 = () => smooth(clamp(journey.current.p2, 0, 1));
+  useOpacityDriver(glowMat, () => 0.9 * p2());
+  useOpacityDriver(coreMat, () => p2());
+  return (
+    <group>
+      <mesh>
+        <sphereGeometry args={[SUN_R, 48, 48]} />
+        <meshBasicMaterial ref={coreMat} color="#fff4dc" transparent opacity={0} />
+      </mesh>
+      <sprite scale={[SUN_R * 7, SUN_R * 7, 1]}>
+        <spriteMaterial
+          ref={glowMat}
+          map={texture}
+          transparent
+          depthWrite={false}
+          blending={THREE.AdditiveBlending}
+          opacity={0}
+        />
+      </sprite>
+    </group>
+  );
+}
+
+function Planet({ spec, journey }: { spec: PlanetSpec; journey: RefObject<Journey> }) {
+  const mat = useRef<THREE.MeshStandardMaterial>(null);
+  const ringMat = useRef<THREE.MeshBasicMaterial>(null);
+  const meshRef = useRef<THREE.Group>(null);
+  const p2 = () => smooth(clamp(journey.current.p2, 0, 1));
+  useOpacityDriver(mat, p2);
+  useOpacityDriver(ringMat, () => 0.55 * p2());
+  useFrame((_, delta) => {
+    if (meshRef.current) meshRef.current.rotation.y += delta * 0.1;
+  });
+  const pos = useMemo(() => orbitPosition(spec.orbit, spec.angle), [spec]);
+  return (
+    <group position={pos} ref={meshRef}>
+      <mesh>
+        <sphereGeometry args={[spec.r, 40, 40]} />
+        <meshStandardMaterial
+          ref={mat}
+          color={spec.color}
+          roughness={0.9}
+          transparent
+          opacity={0}
+        />
+      </mesh>
+      {spec.ring ? (
+        <mesh rotation={[1.25, 0, 0.3]}>
+          <ringGeometry args={[spec.r * 1.35, spec.r * 2.1, 64]} />
+          <meshBasicMaterial
+            ref={ringMat}
+            color="#d8c9a3"
+            transparent
+            opacity={0}
+            side={THREE.DoubleSide}
+            depthWrite={false}
+          />
+        </mesh>
+      ) : null}
+    </group>
+  );
+}
+
+function orbitRingPoints(radius: number, segments = 160): number[] {
+  const pts: number[] = [];
+  for (let i = 0; i < segments; i++) {
+    const a = (i / segments) * Math.PI * 2;
+    const b = ((i + 1) / segments) * Math.PI * 2;
+    pts.push(
+      Math.cos(a) * radius,
+      0,
+      Math.sin(a) * radius,
+      Math.cos(b) * radius,
+      0,
+      Math.sin(b) * radius,
+    );
+  }
+  return pts;
+}
+
+function OrbitRings({ journey }: { journey: RefObject<Journey> }) {
+  const geom = useMemo(() => {
+    const pts: number[] = [];
+    for (const orbit of [...PLANETS.map((p) => p.orbit), EARTH_ORBIT]) {
+      pts.push(...orbitRingPoints(orbit));
+    }
+    return toLineGeometry(pts);
+  }, []);
+  const mat = useRef<THREE.LineBasicMaterial>(null);
+  useOpacityDriver(mat, () => 0.18 * smooth(clamp(journey.current.p2, 0, 1)));
+  return (
+    <lineSegments geometry={geom}>
+      <lineBasicMaterial ref={mat} color="#9db4d8" transparent opacity={0} depthWrite={false} />
+    </lineSegments>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* the rig: one transform carries the whole journey                    */
+/* ------------------------------------------------------------------ */
+
+const tmpEarthWorld = new THREE.Vector3();
+const tmpPos = new THREE.Vector3();
+const tmpTiltQuat = new THREE.Quaternion();
+const X_AXIS = new THREE.Vector3(1, 0, 0);
+
+function SystemRig({
+  journey,
+  children,
+}: {
+  journey: RefObject<Journey>;
+  children: React.ReactNode;
+}) {
+  const ref = useRef<THREE.Group>(null);
+
+  useFrame((_, delta) => {
+    const group = ref.current;
+    if (!group) return;
+    const p1 = smooth(clamp(journey.current.p1, 0, 1));
+    const p2 = smooth(clamp(journey.current.p2, 0, 1));
+
+    // Phase 1: Earth framing (limb close-up → whole planet).
+    const viewY = lerp(VIEW_START.y, VIEW_END.y, p1);
+    const viewScale = lerp(VIEW_START.scale, VIEW_END.scale, p1);
+    const earthPhaseScale = viewScale / EARTH_SYS_R;
+
+    // Phase 2: zoom out — scale interpolates in log space (a zoom is
+    // multiplicative), the system plane tilts into a 3/4 view.
+    const scale = Math.exp(lerp(Math.log(earthPhaseScale), Math.log(SYSTEM_SCALE_END), p2));
+    const tilt = SYSTEM_TILT_END * p2;
+    tmpTiltQuat.setFromAxisAngle(X_AXIS, tilt);
+
+    // Position: during phase 1 the rig is placed so Earth sits at the
+    // hero framing spot; during phase 2 it eases to the system center.
+    tmpEarthWorld.copy(EARTH_SYS_POS).applyQuaternion(tmpTiltQuat).multiplyScalar(scale);
+    tmpPos.set(0, viewY, 0).sub(tmpEarthWorld); // earth-anchored rig position
+    tmpPos.lerp(SYSTEM_CENTER, p2);
+
+    // critically-damped-ish follow so jumpy scrolls stay smooth
+    const k = 1 - Math.exp(-7 * delta);
+    group.position.lerp(tmpPos, k);
+    group.scale.setScalar(group.scale.x + (scale - group.scale.x) * k);
+    group.quaternion.slerp(tmpTiltQuat, k);
+  });
+
+  return (
+    <group
+      ref={ref}
+      position={[
+        -EARTH_SYS_POS.x * (VIEW_START.scale / EARTH_SYS_R),
+        VIEW_START.y,
+        -EARTH_SYS_POS.z * (VIEW_START.scale / EARTH_SYS_R),
+      ]}
+      scale={VIEW_START.scale / EARTH_SYS_R}
+    >
+      {children}
+    </group>
+  );
+}
+
 /** Distant stars, fading in as the journey leaves the sky behind. */
-function Stars({ progressRef }: { progressRef: RefObject<number> }) {
+function Stars({ journey }: { journey: RefObject<Journey> }) {
   const materialRef = useRef<THREE.PointsMaterial>(null);
   const geometry = useMemo(() => {
     const count = 800;
@@ -411,7 +634,8 @@ function Stars({ progressRef }: { progressRef: RefObject<number> }) {
 
   useFrame(() => {
     if (materialRef.current) {
-      materialRef.current.opacity = smooth(progressRef.current ?? 0) * 0.9;
+      const j = journey.current;
+      materialRef.current.opacity = smooth(clamp(j.p1, 0, 1)) * 0.9;
     }
   });
 
@@ -430,41 +654,14 @@ function Stars({ progressRef }: { progressRef: RefObject<number> }) {
   );
 }
 
-/** Scroll-driven rig: eases the globe between the two framings. */
-function SceneRig({
-  progressRef,
-  children,
-}: {
-  progressRef: RefObject<number>;
-  children: React.ReactNode;
-}) {
-  const ref = useRef<THREE.Group>(null);
-
-  useFrame((_, delta) => {
-    const group = ref.current;
-    if (!group) return;
-    const p = smooth(Math.min(1, Math.max(0, progressRef.current ?? 0)));
-    const targetY = lerp(VIEW_START.y, VIEW_END.y, p);
-    const targetS = lerp(VIEW_START.scale, VIEW_END.scale, p);
-    // critically-damped-ish follow so jumpy scrolls stay smooth
-    const k = 1 - Math.exp(-7 * delta);
-    group.position.y += (targetY - group.position.y) * k;
-    group.scale.setScalar(group.scale.x + (targetS - group.scale.x) * k);
-  });
-
-  return (
-    <group ref={ref} position={[0, VIEW_START.y, 0]} scale={VIEW_START.scale}>
-      {children}
-    </group>
-  );
-}
+/* ------------------------------------------------------------------ */
 
 export interface EarthGlobeProps {
   rimColor: [number, number, number];
   /** epoch ms for the sun position */
   atMs: number;
-  /** scroll journey progress 0–1, written by the hero's scroll handler */
-  progressRef: RefObject<number>;
+  /** scroll journey progress, written by the hero's scroll handler */
+  journeyRef: RefObject<Journey>;
   /** fires when the visitor picks up / releases the planet */
   onInteractionChange?: (active: boolean) => void;
   /** disable the idle drift (reduced motion) */
@@ -474,7 +671,7 @@ export interface EarthGlobeProps {
 export default function EarthGlobe({
   rimColor,
   atMs,
-  progressRef,
+  journeyRef,
   onInteractionChange,
   drift = true,
 }: EarthGlobeProps) {
@@ -501,20 +698,30 @@ export default function EarthGlobe({
       aria-hidden
     >
       <Suspense fallback={null}>
-        <Stars progressRef={progressRef} />
-        <SceneRig progressRef={progressRef}>
-          <group ref={spinRef} rotation={[0, initialYaw, 0]}>
-            <EarthSurface
-              rimColor={rimColor}
-              drift={drift}
-              atMs={atMs}
-              spinRef={spinRef}
-              interaction={interaction}
-            />
-            <Graticule interaction={interaction} />
+        <Stars journey={journeyRef} />
+        <ambientLight intensity={0.25} />
+        <SystemRig journey={journeyRef}>
+          <pointLight position={[0, 0, 0]} intensity={3} decay={0.4} />
+          <SunCore journey={journeyRef} />
+          <OrbitRings journey={journeyRef} />
+          {PLANETS.map((spec) => (
+            <Planet key={spec.name} spec={spec} journey={journeyRef} />
+          ))}
+          {/* Earth, in its orbital slot — interactive throughout */}
+          <group position={EARTH_SYS_POS} scale={EARTH_SYS_R}>
+            <group ref={spinRef} rotation={[0, initialYaw, 0]}>
+              <EarthSurface
+                rimColor={rimColor}
+                drift={drift}
+                atMs={atMs}
+                spinRef={spinRef}
+                interaction={interaction}
+              />
+              <Graticule interaction={interaction} />
+            </group>
+            <EarthriseGlow journey={journeyRef} />
           </group>
-          <SunGlow />
-        </SceneRig>
+        </SystemRig>
         <DragControls
           spinRef={spinRef}
           interaction={interaction}

@@ -8,15 +8,14 @@ export default function Home() {
         <Hero />
       </div>
       <div className="relative z-10">
-        {/* journey runway: scroll here pulls the camera back from the
-            limb to the whole planet before the story arrives
-            (height = JOURNEY_VH in Hero.tsx) */}
+        {/* runway one: scroll here pulls the camera back from the limb
+            to the whole planet (height = P1_VH in Hero.tsx) */}
         <div aria-hidden className="h-[160svh]" />
 
-        {/* the planet itself */}
+        {/* the planet itself — passes during the held beat (HOLD_VH) */}
         <section
           id="planet"
-          className="mx-auto flex min-h-[90svh] max-w-2xl flex-col justify-center px-[var(--space-5)]"
+          className="mx-auto flex h-[100svh] max-w-2xl flex-col justify-center px-[var(--space-5)]"
         >
           <p
             className="font-medium"
@@ -43,7 +42,11 @@ export default function Home() {
           </p>
         </section>
 
-        {/* sliding outward: the solar system */}
+        {/* runway two: the viewpoint expands from Earth to the whole
+            solar system (height = P2_VH in Hero.tsx) */}
+        <div aria-hidden className="h-[260svh]" />
+
+        {/* arriving among the planets */}
         <section
           id="solar-system"
           className="mx-auto flex min-h-[90svh] max-w-2xl flex-col justify-center px-[var(--space-5)]"
