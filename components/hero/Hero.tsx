@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { oklchToRgb, paletteAtPhase, paletteToCssVars } from "@/lib/palette";
 import { localSolarPhase, localTimezone } from "@/lib/solar";
 import { StaticHero } from "./StaticHero";
+import { BODY_FACTS } from "./body-facts";
 
 const EarthGlobe = dynamic(() => import("./EarthGlobe"), { ssr: false });
 
@@ -142,8 +143,11 @@ export function Hero() {
   const onFocusRequest = useCallback(
     (name: string | null) => {
       setLockHintVisible(false);
-      if (name === "earth") {
-        // Earth's detailed view lives at its scroll anchor — go there.
+      // A click on Earth outside the system view travels the page to
+      // Earth's own scroll zone. Inside the system view, Earth focuses
+      // like any other body, so the tap-to-exit gesture stays the same
+      // everywhere.
+      if (name === "earth" && journeyRef.current.p2 < 0.5) {
         setFocused(null);
         focusedRef.current = null;
         setSystemLocked(false);
@@ -436,25 +440,13 @@ export function Hero() {
         </div>
       </div>
 
-      {/* focused body name */}
-      <div
-        aria-hidden
-        className="pointer-events-none absolute bottom-[var(--space-7)] left-1/2 -translate-x-1/2 text-center uppercase"
-        style={{
-          fontSize: "var(--text-caption)",
-          letterSpacing: "var(--tracking-caps)",
-          color: "var(--fg)",
-          opacity: focused ? 1 : 0,
-          transition: "opacity var(--duration-slow) var(--ease-gentle)",
-        }}
-      >
-        {focused ?? " "}
-      </div>
+      {/* focused body: name and facts */}
+      <FocusPanel focused={focused} />
 
       {/* the way out of a locked view, shown when scrolling is tried */}
       <div
         aria-hidden
-        className="pointer-events-none absolute bottom-[14svh] left-1/2 -translate-x-1/2 rounded-full px-4 py-1.5 uppercase"
+        className="pointer-events-none absolute top-[10svh] left-1/2 -translate-x-1/2 rounded-full px-4 py-1.5 uppercase"
         style={{
           fontSize: "var(--text-caption)",
           letterSpacing: "var(--tracking-caps)",
@@ -485,5 +477,75 @@ export function Hero() {
         {atTop ? "Touch the planet" : "Drag to spin the planet"}
       </div>
     </section>
+  );
+}
+
+/** Name and facts for the focused body, beside it on wide screens
+    and beneath it on small ones. */
+function FocusPanel({ focused }: { focused: string | null }) {
+  // keep the last body during the fade-out so the text does not blank
+  const [shown, setShown] = useState<string | null>(null);
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- retains the last body through the fade-out
+    if (focused) setShown(focused);
+  }, [focused]);
+  const facts = shown ? BODY_FACTS[shown] : undefined;
+  return (
+    <div
+      className="pointer-events-none absolute inset-x-0 bottom-[6svh] flex justify-center px-[var(--space-5)] md:inset-x-auto md:top-1/2 md:right-auto md:bottom-auto md:left-[6vw] md:-translate-y-1/2 md:justify-start"
+      style={{
+        opacity: focused ? 1 : 0,
+        transition: "opacity var(--duration-slow) var(--ease-gentle)",
+      }}
+    >
+      {facts ? (
+        <div className="w-full max-w-xs text-left">
+          <p
+            className="font-medium uppercase"
+            style={{
+              fontSize: "var(--text-caption)",
+              letterSpacing: "var(--tracking-caps)",
+              color: "var(--accent)",
+            }}
+          >
+            {facts.kind}
+          </p>
+          <h2
+            className="mt-1 font-semibold"
+            style={{
+              fontSize: "var(--text-title-1)",
+              letterSpacing: "var(--tracking-title)",
+              lineHeight: "var(--leading-tight)",
+            }}
+          >
+            {facts.title}
+          </h2>
+          <dl className="mt-[var(--space-4)] grid gap-[var(--space-1)]">
+            {facts.rows.map(([label, value]) => (
+              <div
+                key={label}
+                className="flex items-baseline justify-between gap-[var(--space-4)]"
+                style={{ fontSize: "var(--text-body-sm)" }}
+              >
+                <dt style={{ color: "var(--fg-muted)" }}>{label}</dt>
+                <dd className="text-right" style={{ color: "var(--fg)" }}>
+                  {value}
+                </dd>
+              </div>
+            ))}
+          </dl>
+          <p
+            className="mt-[var(--space-4)]"
+            style={{
+              color: "var(--fg-muted)",
+              fontSize: "var(--text-body-sm)",
+              lineHeight: "var(--leading-relaxed)",
+            }}
+          >
+            {facts.note}
+          </p>
+        </div>
+      ) : null}
+    </div>
   );
 }

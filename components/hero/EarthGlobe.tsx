@@ -41,15 +41,14 @@ const EARTH_ORBIT = 1.0;
 const EARTH_SYS_R = 0.05;
 const EARTH_ANGLE = 1.15;
 
-/** Zoom-out endpoint: whole system in frame, gently tilted. */
+/** Zoom-out endpoint: whole system in frame, gently tilted.
+    The end scale is derived from the viewport in SystemRig. */
 const SYSTEM_TILT_END = -0.5; // rad, around X
-const SYSTEM_SCALE_END = 0.3;
 const SYSTEM_CENTER = new THREE.Vector3(0, 0.08, 0);
 const SUN_R = 0.16;
 
-/** Focused-body framing: the body fills a good part of the view. */
+/** Focused-body framing; the body size is derived from the viewport. */
 const FOCUS_POINT = new THREE.Vector3(0, 0.02, 0.8);
-const FOCUS_WORLD_R = 0.5;
 
 /** Bodies fade in from a third of the way into the zoom. */
 const systemReveal = (p2: number) => smooth(clamp((p2 - 0.33) / 0.55, 0, 1));
@@ -92,8 +91,18 @@ const orbitPosition = (orbit: number, angle: number) =>
 
 const EARTH_SYS_POS = orbitPosition(EARTH_ORBIT, EARTH_ANGLE);
 
+const EARTH_SPEC: PlanetSpec = {
+  name: "earth",
+  orbit: EARTH_ORBIT,
+  r: EARTH_SYS_R,
+  color: "#4a7fb5",
+  angle: EARTH_ANGLE,
+  banding: 0,
+};
+
 function specByName(name: string): PlanetSpec | undefined {
   if (name === "sun") return SUN_SPEC;
+  if (name === "earth") return EARTH_SPEC;
   return PLANETS.find((p) => p.name === name);
 }
 
@@ -480,8 +489,12 @@ function DragControls({
 
     const resolveTarget = (): { group: THREE.Group | null; isSystem: boolean } | null => {
       const focused = focusedRef.current;
-      if (focused && focused !== "earth") {
-        return { group: targets.bodySpins.current.get(focused) ?? null, isSystem: false };
+      if (focused) {
+        const group =
+          focused === "earth"
+            ? targets.earthSpin.current
+            : (targets.bodySpins.current.get(focused) ?? null);
+        return { group, isSystem: false };
       }
       if (journey.current.p2 > 0.6) {
         return { group: targets.systemSpin.current, isSystem: true };
@@ -868,6 +881,7 @@ function SystemRig({
   children: React.ReactNode;
 }) {
   const ref = useRef<THREE.Group>(null);
+  const { size } = useThree();
 
   useFrame((_, delta) => {
     const group = ref.current;
@@ -875,13 +889,17 @@ function SystemRig({
     const p1 = smooth(clamp(journey.current.p1, 0, 1));
     const p2 = smooth(clamp(journey.current.p2, 0, 1));
     const focused = focusedRef.current;
-    const focusSpec = focused && focused !== "earth" ? specByName(focused) : undefined;
+    const focusSpec = focused ? specByName(focused) : undefined;
+    const aspect = size.width / Math.max(1, size.height);
 
     let scaleTarget: number;
     let tilt: number;
 
     if (focusSpec) {
-      scaleTarget = FOCUS_WORLD_R / focusSpec.r;
+      // the body fills half of the viewport's smaller dimension
+      const halfH = 0.88; // world units at the focus plane
+      const focusR = 0.5 * Math.min(halfH, halfH * aspect);
+      scaleTarget = focusR / focusSpec.r;
       tilt = SYSTEM_TILT_END;
       tmpTiltQuat.setFromAxisAngle(X_AXIS, tilt);
       // body position in system space, spun by the system's own yaw
@@ -899,8 +917,18 @@ function SystemRig({
       const earthPhaseScale = viewScale / EARTH_SYS_R;
 
       // Phase 2: zoom out — scale interpolates in log space (a zoom is
-      // multiplicative), the system plane tilts into a 3/4 view.
-      scaleTarget = Math.exp(lerp(Math.log(earthPhaseScale), Math.log(SYSTEM_SCALE_END), p2));
+      // multiplicative), the system plane tilts into a 3/4 view. The
+      // end scale fills the actual viewport: ultrawide screens get a
+      // big system, phones get one that fits.
+      const halfH = 1.19; // world units at the system plane
+      const halfW = halfH * aspect;
+      const outer = 3.45; // outermost orbit + planet radius, system units
+      const scaleEnd = clamp(
+        Math.min((0.9 * halfW) / outer, (0.82 * halfH) / (outer * Math.sin(-SYSTEM_TILT_END))),
+        0.18,
+        0.75,
+      );
+      scaleTarget = Math.exp(lerp(Math.log(earthPhaseScale), Math.log(scaleEnd), p2));
       tilt = SYSTEM_TILT_END * p2;
       tmpTiltQuat.setFromAxisAngle(X_AXIS, tilt);
 
