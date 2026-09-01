@@ -23,3 +23,14 @@ Key routes:
 
 - [docs/concept.md](docs/concept.md) — project concept brief
 - [docs/architecture.md](docs/architecture.md) — architecture & data-compactness principles
+
+## Credits
+
+- Earth imagery: NASA Earth Observatory / Visible Earth — Blue Marble Next Generation (day) and
+  Earth at Night / Black Marble (night). NASA imagery is in the public domain; imagery courtesy
+  of NASA.
+- Solar-position math follows the low-precision Astronomical Almanac approximation.
+
+## License
+
+Code is released under the [MIT License](LICENSE).
