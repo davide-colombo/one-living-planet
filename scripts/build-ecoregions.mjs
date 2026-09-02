@@ -11,9 +11,13 @@
  *    per line, minimal attributes; feed for tippecanoe → PMTiles
  *
  * Then: tippecanoe -o public/data/ecoregions.pmtiles \
- *         -Z0 -z7 --coalesce-densest-as-needed \
+ *         -Z0 -z7 -D10 --coalesce-densest-as-needed \
  *         --extend-zooms-if-still-dropping --detect-shared-borders \
  *         -l ecoregions <source-dir>/ecoregions.ndjson
+ *
+ * -D10 snaps below-max zooms to a 1024 grid (sub-pixel on screen) and
+ * roughly thirds the world-view tiles, where zoom lag lived; leave the
+ * max zoom at full detail.
  */
 import * as shapefile from "shapefile";
 import { createWriteStream } from "node:fs";

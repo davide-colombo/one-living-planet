@@ -31,6 +31,8 @@ interface Ecoregion {
 }
 
 const SOURCE_LAYER = "ecoregions";
+// an id no ecoregion has, for filters that should match nothing
+const NO_SELECTION = -1;
 
 function buildStyle(origin: string): StyleSpecification {
   return {
@@ -80,15 +82,13 @@ function buildStyle(origin: string): StyleSpecification {
         type: "line",
         source: "ecoregions",
         "source-layer": SOURCE_LAYER,
+        // the filter follows the selection, so this layer's buffers hold
+        // one region's outline, not an invisible copy of all 847
+        filter: ["==", ["get", "id"], NO_SELECTION],
         paint: {
           "line-color": "#ffffff",
           "line-width": ["interpolate", ["linear"], ["zoom"], 1, 1.2, 6, 2.2],
-          "line-opacity": [
-            "case",
-            ["boolean", ["feature-state", "selected"], false],
-            0.9,
-            0,
-          ],
+          "line-opacity": 0.9,
         },
       },
     ],
@@ -183,16 +183,21 @@ export function ExploreClient() {
       setHovered(null);
     };
 
-    map.on("mousemove", "eco-fill", (e) => {
-      if (!onGlobe(e.point)) {
+    // Hover picking is a polygon hit-test over dense geometry, too heavy
+    // to run per mousemove event on fast pointers. The pointer position
+    // lands here at full rate; the hit-test runs at most once a frame.
+    let hoverRaf = 0;
+    let pointerAt: { x: number; y: number } | null = null;
+
+    const pickHover = () => {
+      hoverRaf = 0;
+      const p = pointerAt;
+      if (!p || !map.getLayer("eco-fill")) return;
+      if (!onGlobe(p)) {
         clearHover();
         return;
       }
-      // the name label rides just off the pointer, wherever it is
-      if (tooltipRef.current) {
-        tooltipRef.current.style.transform = `translate(${e.point.x + 14}px, ${e.point.y + 18}px)`;
-      }
-      const f = e.features?.[0];
+      const f = map.queryRenderedFeatures([p.x, p.y], { layers: ["eco-fill"] })[0];
       // Rock and Ice carries no data, so it does not answer the pointer
       const id = typeof f?.id === "number" && f.id !== ROCK_AND_ICE_ID ? f.id : null;
       if (id === hoverId) return;
@@ -201,14 +206,35 @@ export function ExploreClient() {
       setState(hoverId, "hover", true);
       map.getCanvas().style.cursor = id === null ? "" : "pointer";
       setHovered(id === null ? null : (indexRef.current?.get(id) ?? null));
+    };
+    const schedulePick = () => {
+      if (!hoverRaf) hoverRaf = requestAnimationFrame(pickHover);
+    };
+
+    map.on("mousemove", (e) => {
+      pointerAt = { x: e.point.x, y: e.point.y };
+      // the name label rides just off the pointer, wherever it is
+      if (tooltipRef.current) {
+        tooltipRef.current.style.transform = `translate(${e.point.x + 14}px, ${e.point.y + 18}px)`;
+      }
+      schedulePick();
     });
 
-    map.on("mouseleave", "eco-fill", clearHover);
+    // zooming moves the world under a still pointer; re-pick when it settles
+    map.on("moveend", schedulePick);
+
+    map.on("mouseout", () => {
+      pointerAt = null;
+      clearHover();
+    });
 
     const select = (id: number | null) => {
       setState(selectedId, "selected", false);
       selectedId = id;
       setState(selectedId, "selected", true);
+      if (map.getLayer("eco-line-selected")) {
+        map.setFilter("eco-line-selected", ["==", ["get", "id"], id ?? NO_SELECTION]);
+      }
       setSelected(id === null ? null : (indexRef.current?.get(id) ?? null));
     };
 
@@ -232,6 +258,7 @@ export function ExploreClient() {
     });
 
     return () => {
+      cancelAnimationFrame(hoverRaf);
       map.remove();
       removeProtocol("pmtiles");
       mapRef.current = null;
