@@ -1,6 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { oklchToRgb, paletteAtPhase, paletteToCssVars } from "@/lib/palette";
 import { localSolarPhase, localTimezone } from "@/lib/solar";
@@ -558,6 +559,21 @@ function FocusPanel({ focused }: { focused: string | null }) {
           >
             {facts.note}
           </p>
+          {facts.action ? (
+            <Link
+              href={facts.action.href}
+              className="pointer-events-auto mt-[var(--space-5)] inline-block rounded-full px-4 py-1.5 uppercase"
+              style={{
+                fontSize: "var(--text-caption)",
+                letterSpacing: "var(--tracking-caps)",
+                color: "var(--fg)",
+                background: "color-mix(in oklab, var(--bg-a) 60%, transparent)",
+                boxShadow: "inset 0 0 0 1px color-mix(in oklab, var(--fg) 30%, transparent)",
+              }}
+            >
+              {facts.action.label}
+            </Link>
+          ) : null}
         </div>
       ) : null}
     </div>

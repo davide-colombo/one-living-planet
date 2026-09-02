@@ -203,7 +203,15 @@ export function ExploreClient() {
 
   return (
     <main className="relative h-svh w-full overflow-hidden" style={{ background: "#050810" }}>
-      <div ref={containerRef} className="absolute inset-0" />
+      {/* arriving from the hero: the globe fades up out of the dark */}
+      <div
+        ref={containerRef}
+        className="absolute inset-0"
+        style={{
+          opacity: ready ? 1 : 0,
+          transition: "opacity var(--duration-ambient) var(--ease-gentle)",
+        }}
+      />
 
       {/* way back */}
       <Link
@@ -303,7 +311,7 @@ export function ExploreClient() {
       {/* first hint */}
       <div
         aria-hidden
-        className="pointer-events-none absolute bottom-[8svh] left-1/2 -translate-x-1/2 rounded-full px-4 py-1.5 uppercase"
+        className="pointer-events-none absolute bottom-[8svh] left-1/2 w-max max-w-[92vw] -translate-x-1/2 rounded-full px-4 py-1.5 text-center uppercase"
         style={{
           fontSize: "var(--text-caption)",
           letterSpacing: "var(--tracking-caps)",

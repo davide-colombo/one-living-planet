@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { Hero } from "@/components/hero/Hero";
 
 const proseShadow = { textShadow: "0 2px 24px rgba(0, 0, 0, 0.9), 0 1px 4px rgba(0, 0, 0, 0.8)" };
@@ -43,6 +44,19 @@ export default function Home() {
               is close to 8.7 million. Most of life on this planet has never been seen up close.
               This site is a way to meet it.
             </p>
+            <Link
+              href="/explore"
+              className="mt-[var(--space-6)] inline-block rounded-full px-5 py-2 uppercase"
+              style={{
+                fontSize: "var(--text-caption)",
+                letterSpacing: "var(--tracking-caps)",
+                color: "var(--fg)",
+                background: "color-mix(in oklab, var(--bg-a) 60%, transparent)",
+                boxShadow: "inset 0 0 0 1px color-mix(in oklab, var(--fg) 30%, transparent)",
+              }}
+            >
+              Meet the ecoregions
+            </Link>
           </div>
         </section>
 

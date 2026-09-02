@@ -8,6 +8,8 @@ export interface BodyFacts {
   kind: string;
   rows: Array<[string, string]>;
   note: string;
+  /** where the story continues from this body, if anywhere */
+  action?: { label: string; href: string };
 }
 
 export const BODY_FACTS: Record<string, BodyFacts> = {
@@ -61,6 +63,7 @@ export const BODY_FACTS: Record<string, BodyFacts> = {
       ["Moons", "1"],
     ],
     note: "The only place where anyone is known to live.",
+    action: { label: "Descend to the surface", href: "/explore" },
   },
   mars: {
     title: "Mars",
