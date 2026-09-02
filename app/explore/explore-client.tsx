@@ -569,7 +569,13 @@ export function ExploreClient() {
           background: "rgba(5, 8, 16, 0.6)",
           boxShadow: "inset 0 0 0 1px rgba(255, 255, 255, 0.18)",
           opacity: ready && !selected && !hovered && !legendOpen && spotlight === null ? 1 : 0,
-          transition: "opacity var(--duration-ambient) var(--ease-gentle)",
+          // ambles in, but steps aside quickly when a card or the
+          // legend takes the stage (on phones it shares their spot)
+          transition: `opacity ${
+            ready && !selected && !hovered && !legendOpen && spotlight === null
+              ? "var(--duration-ambient)"
+              : "var(--duration-fast)"
+          } var(--ease-gentle)`,
         }}
       >
         Touch any place on land
