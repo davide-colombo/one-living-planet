@@ -126,6 +126,23 @@ body {
     visibility 0s var(--duration-slow);
 }
 
+/* A slow current flowing through a pill: the tail of the eye catches
+   the motion at the screen's edge, so the control gets found without
+   shouting. Wants a horizontally periodic gradient (edges matching)
+   at background-size 200% for a seamless loop. */
+@keyframes pill-flow {
+  from {
+    background-position: 0% 50%;
+  }
+  to {
+    background-position: 200% 50%;
+  }
+}
+.pill-flow {
+  background-size: 200% 100%;
+  animation: pill-flow 7s linear infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

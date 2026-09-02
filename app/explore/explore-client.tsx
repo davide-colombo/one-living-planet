@@ -341,19 +341,20 @@ export function ExploreClient() {
         }}
       />
 
-      {/* way back */}
+      {/* way back: red and quietly flowing, so it reads as the exit
+          even from the corner of the eye */}
       <Link
         href="/"
-        className="absolute top-[var(--space-5)] left-[var(--space-5)] rounded-full px-4 py-1.5 uppercase"
+        className="pill-flow absolute top-[var(--space-5)] left-[var(--space-5)] rounded-full px-4 py-1.5 uppercase select-none"
         style={{
           fontSize: "var(--text-caption)",
           letterSpacing: "var(--tracking-caps)",
           color: "var(--fg)",
-          background: "rgba(5, 8, 16, 0.6)",
+          background: "linear-gradient(110deg, #47101a, #9c3542, #47101a)",
           boxShadow: "inset 0 0 0 1px rgba(255, 255, 255, 0.18)",
         }}
       >
-        Earth
+        Back
       </Link>
 
       {/* biome legend: a pill that unfolds the 14 biomes; picking one
@@ -363,14 +364,21 @@ export function ExploreClient() {
           type="button"
           onClick={() => setLegendOpen((o) => !o)}
           aria-expanded={legendOpen}
-          className="flex items-center gap-2 rounded-full px-4 py-1.5 uppercase"
+          className={`flex items-center gap-2 rounded-full px-4 py-1.5 uppercase${
+            spotlight === null ? " pill-flow" : ""
+          }`}
           style={{
-            // never grow into the Earth pill on narrow screens
+            // never grow into the Back pill on narrow screens
             maxWidth: "min(70vw, 100vw - 9rem)",
             fontSize: "var(--text-caption)",
             letterSpacing: "var(--tracking-caps)",
             color: "var(--fg)",
-            background: "rgba(5, 8, 16, 0.6)",
+            // flowing green announces the feature; once a biome is lit
+            // the pill settles down and becomes its status readout
+            background:
+              spotlight === null
+                ? "linear-gradient(110deg, #0f2c1c, #33714a, #0f2c1c)"
+                : "rgba(5, 8, 16, 0.6)",
             boxShadow: "inset 0 0 0 1px rgba(255, 255, 255, 0.18)",
             opacity: ready ? 1 : 0,
             transition: "opacity var(--duration-ambient) var(--ease-gentle)",
@@ -399,6 +407,28 @@ export function ExploreClient() {
               boxShadow: "inset 0 0 0 1px rgba(255, 255, 255, 0.14)",
             }}
           >
+            {/* the way home: one tap back to the whole living planet */}
+            <button
+              type="button"
+              aria-pressed={spotlight === null}
+              onClick={() => setSpotlight(null)}
+              className="flex w-full items-center gap-3 rounded-lg px-3 py-1.5 text-left"
+              style={{
+                background: spotlight === null ? "rgba(255, 255, 255, 0.12)" : "transparent",
+                color: "var(--fg)",
+                fontSize: "0.85rem",
+                lineHeight: "var(--leading-snug)",
+              }}
+            >
+              <span
+                aria-hidden
+                className="h-3 w-3 shrink-0 rounded-full"
+                style={{
+                  background: "conic-gradient(#2f8a4e, #d4b364, #bcc9cb, #33ad9d, #2f8a4e)",
+                }}
+              />
+              All biomes
+            </button>
             {Object.entries(BIOME_NAMES).map(([num, name]) => {
               const n = Number(num);
               const active = n === spotlight;
