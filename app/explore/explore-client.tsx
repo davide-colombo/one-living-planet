@@ -20,6 +20,7 @@ import {
   ecoregionColor,
   ecoregionColorExpression,
 } from "@/lib/biome-palette";
+import type { RegionSpeciesFile } from "@/lib/species";
 
 interface Ecoregion {
   id: number;
@@ -324,6 +325,31 @@ export function ExploreClient() {
     if (selected) setCardRegion(selected);
   }, [selected]);
 
+  // who lives here: fetched lazily per region, remembered for the visit
+  const speciesCache = useRef(new Map<number, RegionSpeciesFile | null>());
+  const [cardSpecies, setCardSpecies] = useState<RegionSpeciesFile | null>(null);
+  // the chip showing its photograph instead of its silhouette; scoped
+  // to a region, so changing regions silently puts the photo away
+  const [revealed, setRevealed] = useState<{ region: number; species: string } | null>(null);
+  useEffect(() => {
+    if (!selected) return; // keep the strip through the fade-out
+    const id = selected.id;
+    const cached = speciesCache.current.get(id);
+    setCardSpecies(cached ?? null);
+    if (cached !== undefined) return;
+    let stale = false;
+    fetch(`/data/species/${id}.json`)
+      .then((r) => (r.ok ? (r.json() as Promise<RegionSpeciesFile>) : null))
+      .catch(() => null)
+      .then((data) => {
+        speciesCache.current.set(id, data);
+        if (!stale) setCardSpecies(data);
+      });
+    return () => {
+      stale = true;
+    };
+  }, [selected]);
+
   return (
     <main className="relative h-svh w-full overflow-hidden" style={{ background: "#050810" }}>
       {/* arriving from the hero: the globe fades up out of the dark.
@@ -496,7 +522,7 @@ export function ExploreClient() {
       >
         {cardRegion ? (
           <div
-            className="w-full max-w-xs rounded-2xl p-[var(--space-5)] text-left md:max-w-sm"
+            className="pointer-events-auto w-full max-w-xs rounded-2xl p-[var(--space-5)] text-left md:max-w-sm"
             style={{
               background: "rgba(5, 8, 16, 0.78)",
               backdropFilter: "blur(14px)",
@@ -544,16 +570,116 @@ export function ExploreClient() {
                 </div>
               ))}
             </dl>
-            <p
-              className="mt-[var(--space-4)]"
-              style={{
-                color: "rgba(255, 255, 255, 0.82)",
-                fontSize: "clamp(0.9rem, 0.8rem + 0.3vw, 1.05rem)",
-                lineHeight: "var(--leading-relaxed)",
-              }}
-            >
-              The species that live here are on their way.
-            </p>
+            {cardSpecies && cardSpecies.species.length > 0 ? (
+              <div className="mt-[var(--space-4)]">
+                <p
+                  className="font-medium uppercase"
+                  style={{
+                    fontSize: "var(--text-caption)",
+                    letterSpacing: "var(--tracking-caps)",
+                    color: "rgba(255, 255, 255, 0.6)",
+                  }}
+                >
+                  Who lives here
+                </p>
+                <ul className="mt-[var(--space-3)] grid grid-cols-3 gap-[var(--space-3)]">
+                  {cardSpecies.species.slice(0, 6).map((s) => {
+                    const isRevealed =
+                      revealed?.region === cardRegion.id && revealed.species === s.id;
+                    const showPhoto = !s.silhouette || isRevealed;
+                    const mask = s.silhouette ? `url(${s.silhouette.url})` : undefined;
+                    return (
+                      <li key={s.id}>
+                        {/* the silhouette keeps the map's flat language;
+                            a tap summons the photographic evidence */}
+                        <button
+                          type="button"
+                          aria-pressed={isRevealed}
+                          onClick={() =>
+                            setRevealed(
+                              isRevealed ? null : { region: cardRegion.id, species: s.id },
+                            )
+                          }
+                          className="block w-full cursor-pointer text-left"
+                          title={
+                            showPhoto
+                              ? `${s.sci} · photo: ${s.photo.credit} (${s.photo.license})`
+                              : `${s.sci} · silhouette: ${s.silhouette?.credit} (${s.silhouette?.license})`
+                          }
+                        >
+                          {showPhoto ? (
+                            /* eslint-disable-next-line @next/next/no-img-element -- CC photos on their observers' hosts; proxying them through the image optimizer buys nothing */
+                            <img
+                              src={s.photo.url}
+                              alt={s.common ?? s.sci}
+                              loading="lazy"
+                              referrerPolicy="no-referrer"
+                              className="aspect-square w-full rounded-lg object-cover"
+                              style={{ background: "rgba(255, 255, 255, 0.06)" }}
+                            />
+                          ) : (
+                            <span
+                              className="block aspect-square w-full rounded-lg p-[var(--space-2)]"
+                              style={{ background: "rgba(255, 255, 255, 0.06)" }}
+                            >
+                              <span
+                                role="img"
+                                aria-label={s.common ?? s.sci}
+                                className="block h-full w-full"
+                                style={{
+                                  background: `color-mix(in oklab, ${ecoregionColor(cardRegion.biomeNum, cardRegion.id)} 60%, white)`,
+                                  WebkitMaskImage: mask,
+                                  maskImage: mask,
+                                  WebkitMaskSize: "contain",
+                                  maskSize: "contain",
+                                  WebkitMaskRepeat: "no-repeat",
+                                  maskRepeat: "no-repeat",
+                                  WebkitMaskPosition: "center",
+                                  maskPosition: "center",
+                                }}
+                              />
+                            </span>
+                          )}
+                          <span
+                            className="mt-1 block truncate"
+                            title={s.common ?? s.sci}
+                            style={{
+                              fontSize: "0.72rem",
+                              color: "rgba(255, 255, 255, 0.85)",
+                              lineHeight: "var(--leading-snug)",
+                            }}
+                          >
+                            {s.common ?? <i>{s.sci}</i>}
+                          </span>
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+                <p
+                  className="mt-[var(--space-2)]"
+                  style={{
+                    fontSize: "0.68rem",
+                    color: "rgba(255, 255, 255, 0.55)",
+                    lineHeight: "var(--leading-snug)",
+                  }}
+                >
+                  Tap a species for its photo. Silhouettes: PhyloPic; photos by their observers,
+                  CC0 / CC BY, via GBIF.
+                </p>
+              </div>
+            ) : (
+              <p
+                className="mt-[var(--space-4)]"
+                style={{
+                  color: "rgba(255, 255, 255, 0.82)",
+                  fontSize: "clamp(0.9rem, 0.8rem + 0.3vw, 1.05rem)",
+                  lineHeight: "var(--leading-relaxed)",
+                }}
+              >
+                The species that live here are on their way.
+              </p>
+            )}
           </div>
         ) : null}
       </div>
