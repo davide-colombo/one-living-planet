@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  BIOME_NAMES,
   BIOME_SHADES,
   ROCK_AND_ICE_COLOR,
   ROCK_AND_ICE_ID,
+  biomeColor,
   ecoregionColor,
   ecoregionColorExpression,
   mixHex,
@@ -47,6 +49,17 @@ describe("ecoregionColor", () => {
 
   it("falls back for an unknown biome", () => {
     expect(ecoregionColor(99, 5)).toMatch(HEX);
+  });
+});
+
+describe("biome legend", () => {
+  it("names exactly the biomes that have shades", () => {
+    expect(Object.keys(BIOME_NAMES).sort()).toEqual(Object.keys(BIOME_SHADES).sort());
+  });
+
+  it("gives every biome a valid swatch color, with a fallback", () => {
+    for (const num of Object.keys(BIOME_NAMES)) expect(biomeColor(Number(num))).toMatch(HEX);
+    expect(biomeColor(99)).toMatch(HEX);
   });
 });
 

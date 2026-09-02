@@ -44,6 +44,24 @@ export const BIOME_SHADES: Record<number, [string, string]> = {
   14: ["#25998a", "#33ad9d"],
 };
 
+/** RESOLVE biome number → display name, for the legend. */
+export const BIOME_NAMES: Record<number, string> = {
+  1: "Tropical & Subtropical Moist Broadleaf Forests",
+  2: "Tropical & Subtropical Dry Broadleaf Forests",
+  3: "Tropical & Subtropical Coniferous Forests",
+  4: "Temperate Broadleaf & Mixed Forests",
+  5: "Temperate Conifer Forests",
+  6: "Boreal Forests / Taiga",
+  7: "Tropical & Subtropical Grasslands, Savannas & Shrublands",
+  8: "Temperate Grasslands, Savannas & Shrublands",
+  9: "Flooded Grasslands & Savannas",
+  10: "Montane Grasslands & Shrublands",
+  11: "Tundra",
+  12: "Mediterranean Forests, Woodlands & Scrub",
+  13: "Deserts & Xeric Shrublands",
+  14: "Mangroves",
+};
+
 /**
  * The one ecoregion outside every biome: id 0, "Rock and Ice". It has
  * no biome, realm, or protection data behind it, so it wears a flat
@@ -67,6 +85,13 @@ export function mixHex(a: string, b: string, t: number): string {
     Math.round(channel(a, i) + (channel(b, i) - channel(a, i)) * t),
   );
   return `#${c.map((v) => v.toString(16).padStart(2, "0")).join("")}`;
+}
+
+/** One representative color per biome, for legend swatches. */
+export function biomeColor(biomeNum: number): string {
+  const shades = BIOME_SHADES[biomeNum];
+  if (!shades) return FALLBACK_COLOR;
+  return mixHex(shades[0], shades[1], 0.5);
 }
 
 /** Fill color of one ecoregion — the same mapping the map style uses. */

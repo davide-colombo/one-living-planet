@@ -14,7 +14,9 @@ import {
 import { Protocol } from "pmtiles";
 import "maplibre-gl/dist/maplibre-gl.css";
 import {
+  BIOME_NAMES,
   ROCK_AND_ICE_ID,
+  biomeColor,
   ecoregionColor,
   ecoregionColorExpression,
 } from "@/lib/biome-palette";
@@ -33,6 +35,39 @@ interface Ecoregion {
 const SOURCE_LAYER = "ecoregions";
 // an id no ecoregion has, for filters that should match nothing
 const NO_SELECTION = -1;
+
+// Spotlighting a biome drops everything else to a ghost of itself; the
+// ocean keeps its color, so the planet never loses its shape.
+const DIMMED_FILL = 0.14;
+const DIMMED_LINE = 0.2;
+
+// Rock and Ice shares Tundra's biome number, so being "lit" takes both
+// the right biome and not being the no-data feature.
+const isLit = (biomeNum: number): unknown[] => [
+  "all",
+  ["==", ["get", "biomeNum"], biomeNum],
+  ["!=", ["get", "id"], ROCK_AND_ICE_ID],
+];
+
+function fillOpacityFor(spotlight: number | null): unknown {
+  const usual: unknown[] = [
+    ["boolean", ["feature-state", "hover"], false],
+    0.97,
+    0.88,
+  ];
+  return [
+    "case",
+    // a selected region always reads at full strength, even when dimmed
+    ["boolean", ["feature-state", "selected"], false],
+    1,
+    ...(spotlight === null ? usual : [["!", isLit(spotlight)], DIMMED_FILL, ...usual]),
+  ];
+}
+
+function lineOpacityFor(spotlight: number | null): unknown {
+  if (spotlight === null) return 1;
+  return ["case", isLit(spotlight), 1, DIMMED_LINE];
+}
 
 function buildStyle(origin: string): StyleSpecification {
   return {
@@ -59,14 +94,8 @@ function buildStyle(origin: string): StyleSpecification {
           // grey for Rock and Ice); near-full opacity so they read as
           // themselves, not space-tinted
           "fill-color": ecoregionColorExpression() as DataDrivenPropertyValueSpecification<string>,
-          "fill-opacity": [
-            "case",
-            ["boolean", ["feature-state", "selected"], false],
-            1,
-            ["boolean", ["feature-state", "hover"], false],
-            0.97,
-            0.88,
-          ],
+          "fill-opacity": fillOpacityFor(null) as DataDrivenPropertyValueSpecification<number>,
+          "fill-opacity-transition": { duration: 500 },
         },
       },
       {
@@ -78,6 +107,7 @@ function buildStyle(origin: string): StyleSpecification {
           // dark seams: visible on the light biomes, quiet on the deep ones
           "line-color": "rgba(8, 12, 20, 0.45)",
           "line-width": ["interpolate", ["linear"], ["zoom"], 1, 0.3, 6, 1],
+          "line-opacity-transition": { duration: 500 },
         },
       },
       {
@@ -106,6 +136,8 @@ export function ExploreClient() {
   const [selected, setSelected] = useState<Ecoregion | null>(null);
   const [hovered, setHovered] = useState<Ecoregion | null>(null);
   const [ready, setReady] = useState(false);
+  const [legendOpen, setLegendOpen] = useState(false);
+  const [spotlight, setSpotlight] = useState<number | null>(null);
   // the tooltip chases the pointer via direct style writes — a React
   // state round-trip per mousemove would be wasted work
   const tooltipRef = useRef<HTMLDivElement>(null);
@@ -268,6 +300,23 @@ export function ExploreClient() {
     };
   }, []);
 
+  // the spotlight is paint, not state the style was built with, so it
+  // lands on the live map; the initial style already matches null
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !map.getLayer("eco-fill")) return;
+    map.setPaintProperty(
+      "eco-fill",
+      "fill-opacity",
+      fillOpacityFor(spotlight) as DataDrivenPropertyValueSpecification<number>,
+    );
+    map.setPaintProperty(
+      "eco-line",
+      "line-opacity",
+      lineOpacityFor(spotlight) as DataDrivenPropertyValueSpecification<number>,
+    );
+  }, [spotlight]);
+
   // the card keeps its last region through the fade-out
   const [cardRegion, setCardRegion] = useState<Ecoregion | null>(null);
   useEffect(() => {
@@ -306,6 +355,83 @@ export function ExploreClient() {
       >
         Earth
       </Link>
+
+      {/* biome legend: a pill that unfolds the 14 biomes; picking one
+          spotlights it and lets the rest of the world fall dark */}
+      <div className="absolute top-[var(--space-5)] right-[var(--space-5)] z-10 flex flex-col items-end gap-[var(--space-2)] select-none">
+        <button
+          type="button"
+          onClick={() => setLegendOpen((o) => !o)}
+          aria-expanded={legendOpen}
+          className="flex items-center gap-2 rounded-full px-4 py-1.5 uppercase"
+          style={{
+            // never grow into the Earth pill on narrow screens
+            maxWidth: "min(70vw, 100vw - 9rem)",
+            fontSize: "var(--text-caption)",
+            letterSpacing: "var(--tracking-caps)",
+            color: "var(--fg)",
+            background: "rgba(5, 8, 16, 0.6)",
+            boxShadow: "inset 0 0 0 1px rgba(255, 255, 255, 0.18)",
+            opacity: ready ? 1 : 0,
+            transition: "opacity var(--duration-ambient) var(--ease-gentle)",
+          }}
+        >
+          {spotlight !== null ? (
+            <>
+              <span
+                aria-hidden
+                className="h-2.5 w-2.5 shrink-0 rounded-full"
+                style={{ background: biomeColor(spotlight) }}
+              />
+              <span className="truncate">{BIOME_NAMES[spotlight]}</span>
+            </>
+          ) : (
+            "Biomes"
+          )}
+        </button>
+        {legendOpen ? (
+          <div
+            className="max-h-[62svh] w-max max-w-[86vw] overflow-y-auto rounded-2xl p-[var(--space-2)]"
+            style={{
+              background: "rgba(5, 8, 16, 0.78)",
+              backdropFilter: "blur(14px)",
+              WebkitBackdropFilter: "blur(14px)",
+              boxShadow: "inset 0 0 0 1px rgba(255, 255, 255, 0.14)",
+            }}
+          >
+            {Object.entries(BIOME_NAMES).map(([num, name]) => {
+              const n = Number(num);
+              const active = n === spotlight;
+              return (
+                <button
+                  key={num}
+                  type="button"
+                  aria-pressed={active}
+                  onClick={() => setSpotlight(active ? null : n)}
+                  className="flex w-full items-center gap-3 rounded-lg px-3 py-1.5 text-left"
+                  style={{
+                    background: active ? "rgba(255, 255, 255, 0.12)" : "transparent",
+                    color: "var(--fg)",
+                    fontSize: "0.85rem",
+                    lineHeight: "var(--leading-snug)",
+                  }}
+                >
+                  <span
+                    aria-hidden
+                    className="h-3 w-3 shrink-0 rounded-sm"
+                    style={{
+                      background: biomeColor(n),
+                      opacity: spotlight === null || active ? 1 : 0.35,
+                      transition: "opacity var(--duration-base) var(--ease-gentle)",
+                    }}
+                  />
+                  {name}
+                </button>
+              );
+            })}
+          </div>
+        ) : null}
+      </div>
 
       {/* the hovered region's name rides just off the pointer, so the
           eye never has to leave the place it is exploring */}
@@ -412,7 +538,7 @@ export function ExploreClient() {
           color: "var(--fg)",
           background: "rgba(5, 8, 16, 0.6)",
           boxShadow: "inset 0 0 0 1px rgba(255, 255, 255, 0.18)",
-          opacity: ready && !selected && !hovered ? 1 : 0,
+          opacity: ready && !selected && !hovered && !legendOpen && spotlight === null ? 1 : 0,
           transition: "opacity var(--duration-ambient) var(--ease-gentle)",
         }}
       >
