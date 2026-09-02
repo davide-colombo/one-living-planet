@@ -45,7 +45,10 @@ function buildStyle(origin: string): StyleSpecification {
       },
     },
     layers: [
-      { id: "space", type: "background", paint: { "background-color": "#050810" } },
+      // In globe projection the background layer paints only the sphere,
+      // so this is the ocean; the page's darker #050810 around it is
+      // space, and the contrast is what makes the planet's edge legible.
+      { id: "ocean", type: "background", paint: { "background-color": "#0d2137" } },
       {
         id: "eco-fill",
         type: "fill",
