@@ -13,7 +13,11 @@ import {
 } from "maplibre-gl";
 import { Protocol } from "pmtiles";
 import "maplibre-gl/dist/maplibre-gl.css";
-import { ecoregionColor, ecoregionColorExpression } from "@/lib/biome-palette";
+import {
+  ROCK_AND_ICE_ID,
+  ecoregionColor,
+  ecoregionColorExpression,
+} from "@/lib/biome-palette";
 
 interface Ecoregion {
   id: number;
@@ -46,8 +50,9 @@ function buildStyle(origin: string): StyleSpecification {
         source: "ecoregions",
         "source-layer": SOURCE_LAYER,
         paint: {
-          // biome-true colors (sand deserts, white ice, climate greens);
-          // near-full opacity so they read as themselves, not space-tinted
+          // biome-true colors (sand deserts, climate greens, no-data
+          // grey for Rock and Ice); near-full opacity so they read as
+          // themselves, not space-tinted
           "fill-color": ecoregionColorExpression() as DataDrivenPropertyValueSpecification<string>,
           "fill-opacity": [
             "case",
@@ -188,7 +193,8 @@ export function ExploreClient() {
         tooltipRef.current.style.transform = `translate(${e.point.x + 14}px, ${e.point.y + 18}px)`;
       }
       const f = e.features?.[0];
-      const id = typeof f?.id === "number" ? f.id : null;
+      // Rock and Ice carries no data, so it does not answer the pointer
+      const id = typeof f?.id === "number" && f.id !== ROCK_AND_ICE_ID ? f.id : null;
       if (id === hoverId) return;
       setState(hoverId, "hover", false);
       hoverId = id;
@@ -209,7 +215,8 @@ export function ExploreClient() {
     map.on("click", "eco-fill", (e) => {
       if (!onGlobe(e.point)) return; // space beside the globe, not this region
       const f = e.features?.[0];
-      select(typeof f?.id === "number" ? f.id : null);
+      // clicking the dataless Rock and Ice clears the card, like ocean
+      select(typeof f?.id === "number" && f.id !== ROCK_AND_ICE_ID ? f.id : null);
     });
 
     // a click on open water or space puts the card away

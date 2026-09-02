@@ -2,8 +2,8 @@
  * Biome palette for the ecoregion explorer.
  *
  * Colors are chosen so the map reads like the world it shows: sand
- * deserts, white ice, greens that deepen with rainfall and drift
- * toward blue as the climate cools, golds for grasslands. RESOLVE's
+ * deserts, greens that deepen with rainfall and drift toward blue as
+ * the climate cools, golds for grasslands. RESOLVE's
  * own COLOR attribute (still in the tiles) is a cartographic palette
  * with no such reading, so the style ignores it.
  *
@@ -44,9 +44,13 @@ export const BIOME_SHADES: Record<number, [string, string]> = {
   14: ["#25998a", "#33ad9d"],
 };
 
-/** The one ecoregion outside every biome: id 0, "Rock and Ice". */
+/**
+ * The one ecoregion outside every biome: id 0, "Rock and Ice". It has
+ * no biome, realm, or protection data behind it, so it wears a flat
+ * dark grey that reads as "no data here" and stays inert on the map.
+ */
 export const ROCK_AND_ICE_ID = 0;
-export const ROCK_AND_ICE_COLOR = "#e8edf2";
+export const ROCK_AND_ICE_COLOR = "#3f464e";
 
 const FALLBACK_COLOR = "#8a8a8a";
 

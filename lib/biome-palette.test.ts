@@ -30,7 +30,7 @@ describe("ecoregionColor", () => {
     }
   });
 
-  it("gives Rock and Ice its own near-white, whatever its biome number", () => {
+  it("gives Rock and Ice the no-data grey, whatever its biome number", () => {
     expect(ecoregionColor(11, ROCK_AND_ICE_ID)).toBe(ROCK_AND_ICE_COLOR);
   });
 
