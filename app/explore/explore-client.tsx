@@ -8,10 +8,12 @@ import {
   addProtocol,
   removeProtocol,
   setWorkerUrl,
+  type DataDrivenPropertyValueSpecification,
   type StyleSpecification,
 } from "maplibre-gl";
 import { Protocol } from "pmtiles";
 import "maplibre-gl/dist/maplibre-gl.css";
+import { ecoregionColor, ecoregionColorExpression } from "@/lib/biome-palette";
 
 interface Ecoregion {
   id: number;
@@ -44,14 +46,16 @@ function buildStyle(origin: string): StyleSpecification {
         source: "ecoregions",
         "source-layer": SOURCE_LAYER,
         paint: {
-          "fill-color": ["get", "color"],
+          // biome-true colors (sand deserts, white ice, climate greens);
+          // near-full opacity so they read as themselves, not space-tinted
+          "fill-color": ecoregionColorExpression() as DataDrivenPropertyValueSpecification<string>,
           "fill-opacity": [
             "case",
             ["boolean", ["feature-state", "selected"], false],
-            0.95,
+            1,
             ["boolean", ["feature-state", "hover"], false],
-            0.8,
-            0.55,
+            0.97,
+            0.88,
           ],
         },
       },
@@ -61,15 +65,31 @@ function buildStyle(origin: string): StyleSpecification {
         source: "ecoregions",
         "source-layer": SOURCE_LAYER,
         paint: {
-          "line-color": "rgba(255, 255, 255, 0.14)",
+          // dark seams: visible on the light biomes, quiet on the deep ones
+          "line-color": "rgba(8, 12, 20, 0.45)",
           "line-width": ["interpolate", ["linear"], ["zoom"], 1, 0.3, 6, 1],
+        },
+      },
+      {
+        id: "eco-line-selected",
+        type: "line",
+        source: "ecoregions",
+        "source-layer": SOURCE_LAYER,
+        paint: {
+          "line-color": "#ffffff",
+          "line-width": ["interpolate", ["linear"], ["zoom"], 1, 1.2, 6, 2.2],
+          "line-opacity": [
+            "case",
+            ["boolean", ["feature-state", "selected"], false],
+            0.9,
+            0,
+          ],
         },
       },
     ],
   };
 }
 
-const textShadow = { textShadow: "0 2px 24px rgba(0, 0, 0, 0.9), 0 1px 4px rgba(0, 0, 0, 0.8)" };
 
 export function ExploreClient() {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -78,7 +98,9 @@ export function ExploreClient() {
   const [selected, setSelected] = useState<Ecoregion | null>(null);
   const [hovered, setHovered] = useState<Ecoregion | null>(null);
   const [ready, setReady] = useState(false);
-  const [diag, setDiag] = useState<string[]>([]);
+  // the tooltip chases the pointer via direct style writes — a React
+  // state round-trip per mousemove would be wasted work
+  const tooltipRef = useRef<HTMLDivElement>(null);
   // the map's event closures read the latest index through a ref
   const indexRef = useRef<Map<number, Ecoregion> | null>(null);
   useEffect(() => {
@@ -115,31 +137,7 @@ export function ExploreClient() {
     mapRef.current = map;
     if (process.env.NODE_ENV !== "production") {
       (window as unknown as Record<string, unknown>).__exploreMap = map;
-      const log = (line: string) => setDiag((d) => [...d.slice(-7), line]);
-      map.on("error", (e) => {
-        console.error("[map error]", e.error?.message ?? e);
-        log(`error: ${e.error?.message ?? String(e)}`);
-      });
-      map.on("styledata", () => log("style loaded"));
-      map.on("sourcedata", (e) => {
-        if (e.sourceId === "ecoregions" && e.tile) {
-          log(
-            `tile ${e.tile.tileID?.canonical?.z ?? "?"} ${e.isSourceLoaded ? "(source loaded)" : ""}`,
-          );
-        }
-      });
-      map.on("dataloading", (e) => {
-        if (e.dataType === "source" && "tile" in e && e.tile) log("tile loading");
-      });
-      const interval = setInterval(() => {
-        const n = map.queryRenderedFeatures({
-          layers: map.getLayer("eco-fill") ? ["eco-fill"] : [],
-        }).length;
-        const src = map.getSource("ecoregions");
-        const loaded = src ? map.isSourceLoaded("ecoregions") : "no source";
-        log(`rendered features: ${n} · source loaded: ${String(loaded)}`);
-      }, 2000);
-      map.once("remove", () => clearInterval(interval));
+      map.on("error", (e) => console.error("[map error]", e.error?.message ?? e));
     }
 
     map.addControl(
@@ -165,7 +163,30 @@ export function ExploreClient() {
       setReady(true);
     });
 
+    // The globe projection maps screen points BESIDE the planet onto
+    // its far side, so feature queries there hit invisible regions.
+    // A visible point survives the unproject/project round trip.
+    const onGlobe = (p: { x: number; y: number }) => {
+      const q = map.project(map.unproject([p.x, p.y]));
+      return Math.hypot(q.x - p.x, q.y - p.y) < 1.5;
+    };
+
+    const clearHover = () => {
+      setState(hoverId, "hover", false);
+      hoverId = null;
+      map.getCanvas().style.cursor = "";
+      setHovered(null);
+    };
+
     map.on("mousemove", "eco-fill", (e) => {
+      if (!onGlobe(e.point)) {
+        clearHover();
+        return;
+      }
+      // the name label rides just off the pointer, wherever it is
+      if (tooltipRef.current) {
+        tooltipRef.current.style.transform = `translate(${e.point.x + 14}px, ${e.point.y + 18}px)`;
+      }
       const f = e.features?.[0];
       const id = typeof f?.id === "number" ? f.id : null;
       if (id === hoverId) return;
@@ -176,20 +197,31 @@ export function ExploreClient() {
       setHovered(id === null ? null : (indexRef.current?.get(id) ?? null));
     });
 
-    map.on("mouseleave", "eco-fill", () => {
-      setState(hoverId, "hover", false);
-      hoverId = null;
-      map.getCanvas().style.cursor = "";
-      setHovered(null);
-    });
+    map.on("mouseleave", "eco-fill", clearHover);
 
-    map.on("click", "eco-fill", (e) => {
-      const f = e.features?.[0];
-      const id = typeof f?.id === "number" ? f.id : null;
+    const select = (id: number | null) => {
       setState(selectedId, "selected", false);
       selectedId = id;
       setState(selectedId, "selected", true);
       setSelected(id === null ? null : (indexRef.current?.get(id) ?? null));
+    };
+
+    map.on("click", "eco-fill", (e) => {
+      if (!onGlobe(e.point)) return; // space beside the globe, not this region
+      const f = e.features?.[0];
+      select(typeof f?.id === "number" ? f.id : null);
+    });
+
+    // a click on open water or space puts the card away
+    map.on("click", (e) => {
+      if (!onGlobe(e.point)) {
+        select(null);
+        return;
+      }
+      const hits = map.queryRenderedFeatures(e.point, {
+        layers: map.getLayer("eco-fill") ? ["eco-fill"] : [],
+      });
+      if (hits.length === 0) select(null);
     });
 
     return () => {
@@ -199,15 +231,25 @@ export function ExploreClient() {
     };
   }, []);
 
-  const shown = selected ?? hovered;
+  // the card keeps its last region through the fade-out
+  const [cardRegion, setCardRegion] = useState<Ecoregion | null>(null);
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- retains the last region through the fade-out
+    if (selected) setCardRegion(selected);
+  }, [selected]);
 
   return (
     <main className="relative h-svh w-full overflow-hidden" style={{ background: "#050810" }}>
-      {/* arriving from the hero: the globe fades up out of the dark */}
+      {/* arriving from the hero: the globe fades up out of the dark.
+          Position and inset are inline because maplibre-gl.css forces
+          position: relative on the container it adopts, and stylesheet
+          order decides whether that beats a Tailwind class; with a
+          relative 0-height container the canvas clips to nothing. */}
       <div
         ref={containerRef}
-        className="absolute inset-0"
         style={{
+          position: "absolute",
+          inset: 0,
           opacity: ready ? 1 : 0,
           transition: "opacity var(--duration-ambient) var(--ease-gentle)",
         }}
@@ -228,48 +270,79 @@ export function ExploreClient() {
         Earth
       </Link>
 
-      {/* ecoregion card */}
+      {/* the hovered region's name rides just off the pointer, so the
+          eye never has to leave the place it is exploring */}
       <div
-        className="pointer-events-none absolute inset-x-0 bottom-[6svh] flex justify-center px-[var(--space-5)] md:inset-x-auto md:top-1/2 md:bottom-auto md:left-[6vw] md:-translate-y-1/2 md:justify-start"
+        ref={tooltipRef}
+        className="pointer-events-none absolute top-0 left-0"
+        style={{ willChange: "transform" }}
+      >
+        <div
+          className="w-max max-w-[16rem] rounded-lg px-3 py-1.5"
+          style={{
+            background: "rgba(5, 8, 16, 0.82)",
+            boxShadow: "inset 0 0 0 1px rgba(255, 255, 255, 0.16)",
+            color: "var(--fg)",
+            fontSize: "0.9rem",
+            lineHeight: "var(--leading-snug)",
+            opacity: hovered && hovered.id !== selected?.id ? 1 : 0,
+          }}
+        >
+          {hovered?.name}
+        </div>
+      </div>
+
+      {/* selected ecoregion: a docked card on its own surface, so the
+          text stays readable over any biome at any zoom */}
+      <div
+        className="pointer-events-none absolute inset-x-0 bottom-[6svh] flex justify-center px-[var(--space-5)] md:inset-x-auto md:bottom-[8svh] md:left-[4vw] md:justify-start"
         style={{
-          opacity: shown ? 1 : 0,
+          opacity: selected ? 1 : 0,
           transition: "opacity var(--duration-base) var(--ease-gentle)",
         }}
       >
-        {shown ? (
-          <div className="w-full max-w-xs text-left md:max-w-sm" style={textShadow}>
+        {cardRegion ? (
+          <div
+            className="w-full max-w-xs rounded-2xl p-[var(--space-5)] text-left md:max-w-sm"
+            style={{
+              background: "rgba(5, 8, 16, 0.78)",
+              backdropFilter: "blur(14px)",
+              WebkitBackdropFilter: "blur(14px)",
+              boxShadow: "inset 0 0 0 1px rgba(255, 255, 255, 0.14)",
+            }}
+          >
             <p
               className="font-medium uppercase"
               style={{
                 fontSize: "var(--text-caption)",
                 letterSpacing: "var(--tracking-caps)",
-                color: shown.color,
+                color: ecoregionColor(cardRegion.biomeNum, cardRegion.id),
               }}
             >
-              {selected ? "Ecoregion" : "Hovering"}
+              Ecoregion
             </p>
             <h1
               className="mt-1 font-semibold"
               style={{
-                fontSize: "clamp(1.6rem, 1.2rem + 1.4vw, 2.8rem)",
+                fontSize: "clamp(1.5rem, 1.1rem + 1.2vw, 2.4rem)",
                 letterSpacing: "var(--tracking-title)",
                 lineHeight: "var(--leading-tight)",
               }}
             >
-              {shown.name}
+              {cardRegion.name}
             </h1>
-            <dl className="mt-[var(--space-5)] grid gap-[var(--space-2)]">
+            <dl className="mt-[var(--space-4)] grid gap-[var(--space-2)]">
               {(
                 [
-                  ["Biome", shown.biome],
-                  ["Realm", shown.realm],
-                  ["Protection outlook", shown.nnh],
+                  ["Biome", cardRegion.biome],
+                  ["Realm", cardRegion.realm],
+                  ["Protection outlook", cardRegion.nnh],
                 ] as Array<[string, string]>
               ).map(([label, value]) => (
                 <div
                   key={label}
                   className="flex items-baseline justify-between gap-[var(--space-4)]"
-                  style={{ fontSize: "clamp(0.95rem, 0.8rem + 0.45vw, 1.3rem)" }}
+                  style={{ fontSize: "clamp(0.9rem, 0.8rem + 0.3vw, 1.1rem)" }}
                 >
                   <dt style={{ color: "rgba(255, 255, 255, 0.72)" }}>{label}</dt>
                   <dd className="text-right" style={{ color: "var(--fg)" }}>
@@ -278,35 +351,19 @@ export function ExploreClient() {
                 </div>
               ))}
             </dl>
-            {selected ? (
-              <p
-                className="mt-[var(--space-5)]"
-                style={{
-                  color: "rgba(255, 255, 255, 0.82)",
-                  fontSize: "clamp(0.95rem, 0.8rem + 0.45vw, 1.25rem)",
-                  lineHeight: "var(--leading-relaxed)",
-                }}
-              >
-                The species that live here are on their way.
-              </p>
-            ) : null}
+            <p
+              className="mt-[var(--space-4)]"
+              style={{
+                color: "rgba(255, 255, 255, 0.82)",
+                fontSize: "clamp(0.9rem, 0.8rem + 0.3vw, 1.05rem)",
+                lineHeight: "var(--leading-relaxed)",
+              }}
+            >
+              The species that live here are on their way.
+            </p>
           </div>
         ) : null}
       </div>
-
-      {process.env.NODE_ENV !== "production" && diag.length > 0 ? (
-        <pre
-          className="pointer-events-none absolute top-[var(--space-5)] right-[var(--space-5)] max-w-md whitespace-pre-wrap rounded-md p-3 font-mono"
-          style={{
-            fontSize: "11px",
-            lineHeight: 1.4,
-            color: "#9fe0a8",
-            background: "rgba(0,0,0,0.6)",
-          }}
-        >
-          {diag.join("\n")}
-        </pre>
-      ) : null}
 
       {/* first hint */}
       <div
