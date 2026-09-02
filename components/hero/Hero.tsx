@@ -79,6 +79,8 @@ export function Hero() {
   const [lockHintVisible, setLockHintVisible] = useState(false);
   const [atTop, setAtTop] = useState(true);
   const [earthCard, setEarthCard] = useState(false);
+  // touch screens read "tap", pointers read "click"
+  const [coarsePointer, setCoarsePointer] = useState(false);
   const focusedRef = useRef<string | null>(null);
   const lockedRef = useRef(false);
   const lockHintTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -177,8 +179,10 @@ export function Hero() {
     };
   }, [focused]);
 
-  // While a view is locked the page cannot scroll; a scroll attempt
-  // shows the way out instead.
+  // While a view is locked the page cannot scroll; the way out shows
+  // briefly on arrival and again on a wheel scroll attempt. Touch moves
+  // stay silent — on a touch screen that same gesture is how the body
+  // is rotated, so it signals handling, not a scroll.
   useEffect(() => {
     const locked = focused !== null;
     lockedRef.current = locked;
@@ -186,19 +190,24 @@ export function Hero() {
     const html = document.documentElement;
     const prevOverflow = html.style.overflow;
     html.style.overflow = "hidden";
-    const showWayOut = (e: Event) => {
-      if (e.cancelable && e.type === "touchmove") e.preventDefault();
+    const flashWayOut = () => {
       setLockHintVisible(true);
       clearTimeout(lockHintTimer.current);
       lockHintTimer.current = setTimeout(() => setLockHintVisible(false), 2200);
     };
-    window.addEventListener("wheel", showWayOut, { passive: true });
-    window.addEventListener("touchmove", showWayOut, { passive: false });
+    const introTimer = setTimeout(flashWayOut, 500);
+    const onTouchMove = (e: TouchEvent) => {
+      // no hint, but keep iOS from rubber-banding the locked page
+      if (e.cancelable) e.preventDefault();
+    };
+    window.addEventListener("wheel", flashWayOut, { passive: true });
+    window.addEventListener("touchmove", onTouchMove, { passive: false });
     return () => {
       html.style.overflow = prevOverflow;
+      clearTimeout(introTimer);
       clearTimeout(lockHintTimer.current);
-      window.removeEventListener("wheel", showWayOut);
-      window.removeEventListener("touchmove", showWayOut);
+      window.removeEventListener("wheel", flashWayOut);
+      window.removeEventListener("touchmove", onTouchMove);
     };
   }, [focused]);
 
@@ -206,6 +215,7 @@ export function Hero() {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- client-only init after hydration
     setMode(detectMode());
     setTimezone(localTimezone());
+    setCoarsePointer(window.matchMedia("(pointer: coarse)").matches);
     const offset = devTimeOffsetMs();
     const tick = () => {
       const ms = Date.now() + offset;
@@ -439,10 +449,12 @@ export function Hero() {
       {/* focused body: name and facts */}
       <FocusPanel focused={focused ?? (earthCard ? "earth" : null)} />
 
-      {/* the way out of a locked view, shown when scrolling is tried */}
+      {/* the way out of a locked view, shown on arrival and when
+          scrolling is tried; w-max frees the pill from the half-width
+          box its left-anchored absolute position would give it */}
       <div
         aria-hidden
-        className="pointer-events-none absolute top-[10svh] left-1/2 -translate-x-1/2 rounded-full px-4 py-1.5 uppercase"
+        className="pointer-events-none absolute top-[10svh] left-1/2 w-max max-w-[92vw] -translate-x-1/2 rounded-full px-4 py-1.5 text-center uppercase"
         style={{
           fontSize: "var(--text-caption)",
           letterSpacing: "var(--tracking-caps)",
@@ -453,13 +465,14 @@ export function Hero() {
           transition: "opacity var(--duration-slow) var(--ease-gentle)",
         }}
       >
-        Click anywhere to exit the planet view
+        {/* the touch copy is short on purpose: one line on a phone */}
+        {coarsePointer ? "Tap anywhere to exit" : "Click anywhere to exit the planet view"}
       </div>
 
       {/* first-visit hint: the planet can be touched */}
       <div
         aria-hidden
-        className="pointer-events-none absolute bottom-[22svh] left-1/2 -translate-x-1/2 rounded-full px-4 py-1.5 uppercase"
+        className="pointer-events-none absolute bottom-[22svh] left-1/2 w-max max-w-[92vw] -translate-x-1/2 rounded-full px-4 py-1.5 text-center uppercase"
         style={{
           fontSize: "var(--text-caption)",
           letterSpacing: "var(--tracking-caps)",

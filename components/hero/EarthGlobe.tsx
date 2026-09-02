@@ -26,7 +26,7 @@ function yawForLongitude(lonDeg: number): number {
 const DEG = Math.PI / 180;
 const EARTH_OBLIQUITY = 23.4 * DEG;
 const DRIFT_RAD_PER_S = 0.006; // full turn ≈ 17 min — barely perceptible
-const TILT_LIMIT = 1.1; // rad — how far a body can be tilted by hand
+const SYSTEM_TILT_MAX = 0.35; // rad — how far the system plane tips by hand
 const RESUME_DRIFT_AFTER_MS = 2500;
 const REVEAL_LINGER_MS = 1000;
 
@@ -49,8 +49,9 @@ const SYSTEM_TILT_END = -0.5; // rad, around X
 const SYSTEM_CENTER = new THREE.Vector3(0, 0.08, 0);
 const SUN_R = 0.2;
 
-/** Focused-body framing; the body size is derived from the viewport. */
-const FOCUS_POINT = new THREE.Vector3(0, 0.02, 0.8);
+/** Focused-body framing; the body size is derived from the viewport.
+    The y sits on the camera's sightline so the body reads centered. */
+const FOCUS_POINT = new THREE.Vector3(0, 0.09, 0.8);
 
 /** Bodies fade in from a third of the way into the zoom. */
 const systemReveal = (p2: number) => smooth(clamp((p2 - 0.33) / 0.55, 0, 1));
@@ -750,9 +751,15 @@ function DragControls({
       const dx = e.clientX - lastX;
       const dy = e.clientY - lastY;
       it.dragDist += Math.abs(dx) + Math.abs(dy);
-      group.rotation.y += dx * 0.005;
-      const tiltMax = activeIsSystem.current ? 0.35 : TILT_LIMIT;
-      group.rotation.x = clamp(group.rotation.x + dy * 0.004, -tiltMax, tiltMax);
+      if (activeIsSystem.current) {
+        group.rotation.y += dx * 0.005;
+        group.rotation.x = clamp(group.rotation.x + dy * 0.004, -SYSTEM_TILT_MAX, SYSTEM_TILT_MAX);
+      } else {
+        // a body tumbles freely; past upside down the yaw flips so the
+        // surface keeps following the pointer
+        group.rotation.y += dx * 0.005 * (Math.cos(group.rotation.x) < 0 ? -1 : 1);
+        group.rotation.x += dy * 0.004;
+      }
       it.lastActiveMs = now;
       lastX = e.clientX;
       lastY = e.clientY;
@@ -778,7 +785,9 @@ function DragControls({
       if (last && recent.length >= 2 && now - last.t < 90) {
         const first = recent[0];
         const dtS = Math.max(0.016, (last.t - first.t) / 1000);
-        const v = ((last.x - first.x) * 0.005) / dtS; // rad/s
+        let v = ((last.x - first.x) * 0.005) / dtS; // rad/s
+        const g = activeGroup.current;
+        if (g && !activeIsSystem.current && Math.cos(g.rotation.x) < 0) v = -v;
         if (Math.abs(v) > 0.5) it.vel = clamp(v, -5, 5);
       }
       it.lastActiveMs = performance.now();
@@ -827,13 +836,29 @@ function DragControls({
   useFrame((_, delta) => {
     const it = interaction.current;
     const group = activeGroup.current;
-    if (!group) return;
-    if (!it.dragging && Math.abs(it.vel) > 0.001) {
+    if (group && !it.dragging && Math.abs(it.vel) > 0.001) {
       group.rotation.y += it.vel * delta;
       it.vel *= Math.exp(-2.2 * delta);
     }
-    if (!it.dragging && activeIsSystem.current) {
+    if (group && !it.dragging && activeIsSystem.current) {
       group.rotation.x *= Math.exp(-1.5 * delta);
+    }
+    // Left alone, a handled body gently rights itself — to the nearest
+    // upright, so a full tumble unwinds the short way. The system view
+    // then never keeps a planet cockeyed from an earlier focus visit.
+    // The focused body is exempt: its view belongs to the visitor.
+    if (!it.dragging && performance.now() - it.lastActiveMs > RESUME_DRIFT_AFTER_MS) {
+      const focused = focusedRef.current;
+      const k = 1 - Math.exp(-0.45 * delta);
+      const right = (g: THREE.Group | null) => {
+        if (!g) return;
+        const home = Math.round(g.rotation.x / (2 * Math.PI)) * 2 * Math.PI;
+        g.rotation.x += (home - g.rotation.x) * k;
+      };
+      if (focused !== "earth") right(targets.earthSpin.current);
+      for (const [name, g] of targets.bodySpins.current) {
+        if (name !== focused) right(g);
+      }
     }
   });
 
@@ -1196,7 +1221,7 @@ function SystemRig({
       const halfH = 0.88; // world units at the focus plane
       const focusR = 0.62 * Math.min(halfH, halfH * aspect);
       scaleTarget = focusR / focusSpec.r;
-      tilt = SYSTEM_TILT_END;
+      tilt = 0; // the focused body presents upright, not in the system's 3/4 view
       tmpTiltQuat.setFromAxisAngle(X_AXIS, tilt);
       // body position in system space, spun by the system's own yaw
       tmpBodyWorld.copy(orbitPosition(focusSpec.orbit, focusSpec.angle));
@@ -1424,7 +1449,13 @@ export default function EarthGlobe({
   return (
     <Canvas
       dpr={[1, 2]}
-      gl={{ antialias: true, alpha: true, powerPreference: "high-performance" }}
+      gl={{
+        antialias: true,
+        alpha: true,
+        powerPreference: "high-performance",
+        // headless debugging can read pixels back (dev only; costs a buffer copy)
+        preserveDrawingBuffer: process.env.NODE_ENV !== "production",
+      }}
       camera={{ position: [0, 0.35, 3.1], fov: 42 }}
       style={{ position: "absolute", inset: 0 }}
       aria-hidden
