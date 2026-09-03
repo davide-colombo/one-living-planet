@@ -12,7 +12,9 @@ import {
   type StyleSpecification,
 } from "maplibre-gl";
 import { Protocol } from "pmtiles";
-import "maplibre-gl/dist/maplibre-gl.css";
+// the distilled slice of maplibre-gl.css this app uses (canvas
+// plumbing + compact attribution); scripts/extract-maplibre-css.mjs
+import "./maplibre-core.css";
 import {
   BIOME_NAMES,
   ROCK_AND_ICE_ID,
