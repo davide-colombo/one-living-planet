@@ -1,7 +1,11 @@
 /**
  * Species backbone: GBIF occurrences → the explorer's own species files.
  *
- * Usage: node scripts/build-species.mjs <ecoregions.ndjson> <id> [id...]
+ * Usage: node scripts/build-species.mjs <ecoregions.ndjson> <id|all> [id...]
+ *
+ * Checkpointed: regions whose JSON already exists are skipped, so an
+ * interrupted run resumes by rerunning the same command. Outages on
+ * GBIF's side are waited out with long backoff, not failed through.
  *
  * For each ecoregion, asks GBIF which species have been photographed
  * inside its (simplified) borders, keeping only CC0 / CC-BY records so
@@ -21,10 +25,12 @@ import * as turf from "@turf/turf";
 
 const [ndjsonPath, ...idArgs] = process.argv.slice(2);
 if (!ndjsonPath || idArgs.length === 0) {
-  console.error("usage: node scripts/build-species.mjs <ecoregions.ndjson> <id> [id...]");
+  console.error("usage: node scripts/build-species.mjs <ecoregions.ndjson> <id|all> [id...]");
   process.exit(1);
 }
-const wanted = new Set(idArgs.map(Number));
+const allRegions = idArgs[0] === "all";
+const wanted = new Set(allRegions ? [] : idArgs.map(Number));
+const ROCK_AND_ICE_ID = 0;
 
 const API = "https://api.gbif.org/v1";
 const LICENSES = ["CC0_1_0", "CC_BY_4_0"];
@@ -138,15 +144,35 @@ async function wktAccepted(wkt) {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// A client error is an answer (bad geometry candidates rely on 400s);
+// a server error or network failure is weather — wait it out, for
+// hours if GBIF is having a day like that.
+const OUTAGE_DELAYS = [1500, 5000, 30_000, 120_000, 600_000, 1_800_000];
+
 async function gbif(pathname, params) {
   const url = new URL(API + pathname);
   for (const [k, v] of params) url.searchParams.append(k, v);
   for (let attempt = 0; ; attempt++) {
     await sleep(250);
-    const res = await fetch(url, { headers: { "User-Agent": "earth-explorer build" } });
-    if (res.ok) return res.json();
-    if (attempt >= 2) throw new Error(`GBIF ${res.status} for ${url}`);
-    await sleep(1500 * (attempt + 1));
+    let res = null;
+    try {
+      res = await fetch(url, {
+        headers: { "User-Agent": "earth-explorer build" },
+        signal: AbortSignal.timeout(60_000),
+      });
+    } catch {
+      // network failure or hang; treated like a server error below
+    }
+    if (res?.ok) return res.json();
+    const status = res?.status ?? 0;
+    if (status >= 400 && status < 500 && status !== 429) {
+      throw new Error(`GBIF ${status} for ${url}`);
+    }
+    if (attempt >= 40) throw new Error(`GBIF unavailable for many hours, giving up on ${url}`);
+    if (attempt === OUTAGE_DELAYS.length) {
+      console.warn(`\nGBIF unavailable (${status || "network"}), waiting it out...`);
+    }
+    await sleep(OUTAGE_DELAYS[Math.min(attempt, OUTAGE_DELAYS.length - 1)]);
   }
 }
 
@@ -198,16 +224,20 @@ const INAT_DATASET = "50c9509d-22c7-4a22-a47d-8c48425ef4a7";
 /* --------------------------- PhyloPic ---------------------------- */
 
 async function phylopic(url) {
-  await sleep(150);
-  try {
-    const res = await fetch(url, {
-      headers: { "User-Agent": "earth-explorer build" },
-      signal: AbortSignal.timeout(10000),
-    });
-    return res.ok ? { json: await res.json(), url: res.url } : null;
-  } catch {
-    return null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    await sleep(150 * (attempt + 1));
+    try {
+      const res = await fetch(url, {
+        headers: { "User-Agent": "earth-explorer build" },
+        signal: AbortSignal.timeout(10000),
+      });
+      if (res.ok) return { json: await res.json(), url: res.url };
+      if (res.status < 500) return null; // a 404 is an answer, not weather
+    } catch {
+      // network hiccup; retry
+    }
   }
+  return null;
 }
 
 /**
@@ -390,16 +420,25 @@ const reader = createInterface({ input: createReadStream(ndjsonPath) });
 for await (const line of reader) {
   if (!line.trim()) continue;
   const feature = JSON.parse(line);
-  if (wanted.has(feature.properties.id)) {
-    regions.set(feature.properties.id, feature);
+  const id = feature.properties.id;
+  // Rock and Ice (id 0) is the no-data feature; it never gets a card
+  if (allRegions ? id !== ROCK_AND_ICE_ID : wanted.has(id)) {
+    regions.set(id, feature);
   }
 }
 const missing = [...wanted].filter((id) => !regions.has(id));
 if (missing.length) console.warn(`not in ${ndjsonPath}: ${missing.join(", ")}`);
 
 let failed = 0;
+let skipped = 0;
+let seen = 0;
 for (const [id, feature] of regions) {
   const name = feature.properties.name;
+  seen++;
+  if (existsSync(path.join(outDir, `${id}.json`))) {
+    skipped++;
+    continue; // checkpointed: already built by an earlier run
+  }
   try {
     const candidates = regionWktCandidates(feature.geometry);
     let wkt = null;
@@ -415,7 +454,9 @@ for (const [id, feature] of regions) {
       continue;
     }
     const isHull = wkt === candidates[candidates.length - 1] && candidates.length > 1;
-    process.stdout.write(`${id} ${name} (wkt ${wkt.length} chars${isHull ? ", hull" : ""})`);
+    process.stdout.write(
+      `[${seen}/${regions.size}] ${id} ${name} (wkt ${wkt.length} chars${isHull ? ", hull" : ""})`,
+    );
 
     const picks = [];
     for (const groupSpec of GROUPS) {
@@ -436,4 +477,6 @@ for (const [id, feature] of regions) {
     failed++;
   }
 }
-console.log(failed ? `done, ${failed} region(s) failed` : "done");
+console.log(
+  `done: ${regions.size - skipped - failed} built, ${skipped} already existed, ${failed} failed`,
+);
